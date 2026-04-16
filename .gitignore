@@ -1,0 +1,60 @@
+# Environments
+venv/
+env/
+.env
+.venv/
+env.bak/
+venv.bak/
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Jupyter Notebooks
+.ipynb_checkpoints/
+
+# Data and Models
+# (We don't want to commit large datasets or trained models to GitHub)
+data/*
+!data/.gitkeep
+artifacts/*
+!artifacts/.gitkeep
+*.csv
+*.parquet
+*.h5
+*.pkl
+*.model
+
+# Secrets and Configurations (Do not commit sensitive info)
+.env
+secret*/
+*.key
+.streamlit/secrets.toml
+
+# Logs
+logs/
+airflow/logs/
+*.log
+
+# C-extensions
+*.so
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.swn
+.pytest_cache/
+
+# IDE / OS specific files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
