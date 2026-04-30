@@ -1,0 +1,33 @@
+name: AQI Feature Pipeline
+
+on:
+  schedule:
+    - cron: '0 * * * *'  # Runs every hour at minute 0
+  workflow_dispatch:      # Allows manual trigger from GitHub UI
+
+jobs:
+  run-pipeline:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v3
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+
+    - name: Install Dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install "hopsworks[python]"
+        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+
+    - name: Run Pipeline
+      env:
+        AQICN_TOKEN: ${{ secrets.AQICN_TOKEN }}
+        HOPSWORKS_API_KEY: ${{ secrets.HOPSWORKS_API_KEY }}
+        HOPSWORKS_PROJECT_NAME: ${{ secrets.HOPSWORKS_PROJECT_NAME }}
+        HOPSWORKS_HOST: ${{ secrets.HOPSWORKS_HOST }}
+      run: python src/pipeline/training_pipeline.py

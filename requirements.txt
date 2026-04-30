@@ -8,5 +8,5 @@ seaborn
 requests
 shap
 joblib
-tensorflow
 python-dotenv
+hopsworks
