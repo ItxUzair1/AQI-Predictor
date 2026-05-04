@@ -98,12 +98,18 @@ class DataTransformation:
             # 3. Add time features
             df = self.extract_time_features(df)
             
-            # 4. Cast numerical columns to float to avoid schema mismatches (e.g. bigint vs double)
+            # 4. Cast numerical columns to correct types for Hopsworks (int64 for bigint, float for double)
             numerical_cols = ['aqi', 'pm25', 'pm10', 'o3', 'no2', 'so2', 'co', 
                               'temperature', 'humidity', 'pressure', 'wind_speed', 'target_aqi']
+            time_cols = ['hour', 'day', 'month', 'day_of_week']
+            
             for col in numerical_cols:
                 if col in df.columns:
                     df[col] = pd.to_numeric(df[col], errors='coerce').astype(float)
+            
+            for col in time_cols:
+                if col in df.columns:
+                    df[col] = pd.to_numeric(df[col], errors='coerce').astype('int64')
             
             # 5. Handle missing values (NaN) by filling them with 0
             # This is necessary because not all stations monitor all pollutants

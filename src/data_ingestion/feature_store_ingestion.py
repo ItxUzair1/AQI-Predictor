@@ -60,9 +60,14 @@ class FeatureStoreIngestion:
                 name=group_name,
                 version=version,
                 primary_key=["city", "timestamp"],
+                event_time="timestamp",
                 description="AQI and weather features for city"
             )
             
+            # Ensure timestamp is datetime
+            if 'timestamp' in df.columns:
+                df['timestamp'] = pd.to_datetime(df['timestamp'])
+                
             # Insert data
             aqi_fg.insert(df)
             logger.info(f"Successfully inserted data into feature group: {group_name}")

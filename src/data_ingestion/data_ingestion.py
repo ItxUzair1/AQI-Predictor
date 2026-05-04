@@ -39,6 +39,6 @@ class DataIngestion():
 
 
 if __name__=="__main__":
-    ingestion=DataIngestion("islamabad")
+    ingestion=DataIngestion("karachi")
     data=ingestion.get_city_data()
     print(data)

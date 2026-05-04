@@ -10,7 +10,7 @@ from src.exception import CustomException
 logger = get_logger("Training Pipeline")
 
 class TrainingPipeline:
-    def __init__(self, city_name="shanghai"):
+    def __init__(self, city_name="karachi"):
         self.city_name = city_name
         self.ingestion = DataIngestion(city_name)
         self.transformer = DataTransformation()
