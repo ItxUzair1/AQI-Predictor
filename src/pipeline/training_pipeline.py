@@ -34,14 +34,8 @@ class TrainingPipeline:
             try:
                 self.fs_ingestion.save_to_feature_group(df, "aqi_features")
             except Exception as e:
-                logger.warning(f"Feature Store step failed (likely missing hopsworks or API key): {str(e)}")
-                print("\n[WARNING] Feature Store ingestion failed. Please ensure 'hopsworks' is installed and API keys are set.")
-                print("\nComputed Features:")
-                try:
-                    print(df.to_string())
-                except UnicodeEncodeError:
-                    # Fallback for terminals that can't handle non-ASCII characters (e.g. Chinese characters in city names)
-                    print(df.to_string().encode('ascii', 'replace').decode('ascii'))
+                logger.error(f"Feature Store step failed: {str(e)}")
+                raise CustomException(e, sys)
             
             logger.info("Pipeline execution completed")
             return df
