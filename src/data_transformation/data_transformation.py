@@ -1,6 +1,6 @@
 import pandas as pd
 import numpy as np
-from datetime import datetime
+from datetime import datetime, timezone
 from src.logger import get_logger
 from src.exception import CustomException
 import sys
@@ -95,10 +95,14 @@ class DataTransformation:
             # Create DataFrame
             df = pd.DataFrame([combined_data])
             
-            # 3. Add time features
+            # 3. Add ingestion timestamp (current time when pipeline runs)
+            # This ensures each hourly run creates a unique row in the feature store
+            df['ingestion_timestamp'] = pd.to_datetime(datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S'))
+            
+            # 4. Add time features
             df = self.extract_time_features(df)
             
-            # 4. Cast numerical columns to correct types for Hopsworks (int64 for bigint, float for double)
+            # 5. Cast numerical columns to correct types for Hopsworks (int64 for bigint, float for double)
             numerical_cols = ['aqi', 'pm25', 'pm10', 'o3', 'no2', 'so2', 'co', 
                               'temperature', 'humidity', 'pressure', 'wind_speed', 'target_aqi']
             time_cols = ['hour', 'day', 'month', 'day_of_week']
@@ -111,7 +115,7 @@ class DataTransformation:
                 if col in df.columns:
                     df[col] = pd.to_numeric(df[col], errors='coerce').astype('int64')
             
-            # 5. Handle missing values (NaN) by filling them with 0
+            # 6. Handle missing values (NaN) by filling them with 0
             # This is necessary because not all stations monitor all pollutants
             df.fillna(0, inplace=True)
             
