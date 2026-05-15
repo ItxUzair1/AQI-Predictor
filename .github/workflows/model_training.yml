@@ -1,12 +1,12 @@
-name: AQI Feature Pipeline
+name: AQI Model Training Pipeline
 
 on:
   schedule:
-    - cron: '0 * * * *'  # Runs every hour at minute 0
-  workflow_dispatch:      # Allows manual trigger from GitHub UI
+    - cron: '0 0 * * *'  # Runs every day at midnight UTC
+  workflow_dispatch:      # Allows manual trigger
 
 jobs:
-  run-pipeline:
+  train-model:
     runs-on: ubuntu-latest
 
     steps:
@@ -24,10 +24,10 @@ jobs:
         pip install "hopsworks[python]"
         if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
-    - name: Run Pipeline
+    - name: Run Training Pipeline
       env:
         AQICN_TOKEN: ${{ secrets.AQICN_TOKEN }}
         HOPSWORKS_API_KEY: ${{ secrets.HOPSWORKS_API_KEY }}
         HOPSWORKS_PROJECT_NAME: ${{ secrets.HOPSWORKS_PROJECT_NAME }}
         HOPSWORKS_HOST: ${{ secrets.HOPSWORKS_HOST }}
-      run: python src/pipeline/feature_ingestion.py
+      run: python src/pipeline/training_pipeline.py

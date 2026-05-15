@@ -10,3 +10,4 @@ shap
 joblib
 python-dotenv
 hopsworks
+streamlit

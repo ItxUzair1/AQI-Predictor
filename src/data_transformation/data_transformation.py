@@ -60,20 +60,28 @@ class DataTransformation:
 
     def extract_targets(self, raw_data):
         """
-        Extracts target values (future AQI) from forecast data.
-        For this example, we'll take the average PM2.5 forecast for the next available day.
+        Extracts the 3-day ahead AQI forecast from the AQICN daily forecast array.
+        The API returns: [today, day+1, day+2, day+3, ...]
+        We pick index 3 (day+3) to store as the reference target.
+        Note: The model's actual training target is created by time-shifting
+        in model_trainer.py, so this column serves as a secondary reference.
         """
         try:
             forecast = raw_data.get('data', {}).get('forecast', {}).get('daily', {})
             pm25_forecast = forecast.get('pm25', [])
-            
-            if len(pm25_forecast) > 1:
-                # Next day's average PM2.5 as target
-                target_aqi = pm25_forecast[1].get('avg')
-                target_day = pm25_forecast[1].get('day')
-                return {'target_aqi': target_aqi, 'target_day': target_day}
-            
-            return {'target_aqi': None, 'target_day': None}
+
+            # index 3 → 3 days ahead; fallback to last available
+            if len(pm25_forecast) >= 4:
+                entry = pm25_forecast[3]
+            elif len(pm25_forecast) > 0:
+                entry = pm25_forecast[-1]
+            else:
+                return {'target_aqi': None, 'target_day': None}
+
+            return {
+                'target_aqi': entry.get('avg'),
+                'target_day': entry.get('day')
+            }
         except Exception as e:
             logger.error(f"Error extracting targets: {str(e)}")
             raise CustomException(e, sys)

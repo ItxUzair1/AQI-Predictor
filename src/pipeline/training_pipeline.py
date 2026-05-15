@@ -4,6 +4,7 @@ sys.path.append(os.getcwd())
 from src.data_ingestion.data_ingestion import DataIngestion
 from src.data_transformation.data_transformation import DataTransformation
 from src.data_ingestion.feature_store_ingestion import FeatureStoreIngestion
+from src.model_training.model_trainer import ModelTrainer
 from src.logger import get_logger
 from src.exception import CustomException
 
@@ -15,6 +16,7 @@ class TrainingPipeline:
         self.ingestion = DataIngestion(city_name)
         self.transformer = DataTransformation()
         self.fs_ingestion = FeatureStoreIngestion()
+        self.trainer = ModelTrainer(city_name)
 
     def run_pipeline(self):
         try:
@@ -30,14 +32,19 @@ class TrainingPipeline:
             
             # Step 3: Feature Store Storage
             logger.info("Step 3: Storing features in Feature Store...")
-            # Note: This will fail if hopsworks is not installed or API key is missing
             try:
                 self.fs_ingestion.save_to_feature_group(df, "aqi_features")
             except Exception as e:
                 logger.error(f"Feature Store step failed: {str(e)}")
+                # We can continue if we want to train on existing data, 
+                # but usually we want fresh data.
                 raise CustomException(e, sys)
             
-            logger.info("Pipeline execution completed")
+            # Step 4: Model Training and Registration
+            logger.info("Step 4: Training and registering model...")
+            self.trainer.train_and_register()
+            
+            logger.info("Pipeline execution completed successfully")
             return df
 
         except Exception as e:
