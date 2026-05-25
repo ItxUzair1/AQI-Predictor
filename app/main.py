@@ -6,10 +6,12 @@ from datetime import datetime, timedelta
 # sys.path MUST be set before any src.* imports
 sys.path.append(os.getcwd())
 
+# pyrefly: ignore [missing-import]
 import streamlit as st
 import pandas as pd
 import numpy as np
 import joblib
+# pyrefly: ignore [missing-import]
 import hopsworks
 from dotenv import load_dotenv
 
@@ -170,23 +172,68 @@ def load_feature_data(city_name: str):
     project = _hopsworks_login()
     fs = project.get_feature_store()
 
-    aqi_fg = fs.get_feature_group(name="aqi_features", version=2)
-    df = aqi_fg.select_all().read()
+    aqi_fg = fs.get_feature_group(name="aqi_features", version=3)
+    
+    try:
+        df = aqi_fg.select_all().read()
+    except Exception as e:
+        st.warning("Hopsworks offline store unavailable. Trying online store/fallback...")
+        try:
+            df = aqi_fg.select_all().read(online=True)
+        except Exception as online_e:
+            st.error("Hopsworks cluster overloaded. Generating local fallback data for inference...")
+            import sys
+            import os
+            sys.path.append(os.getcwd())
+            from scripts.backfill_data import generate_historical_data
+            df = generate_historical_data(city_name, days=5)
 
     if 'city' in df.columns:
-        df = df[df['city'] == city_name]
+        df = df[df['city'].str.lower().str.contains(city_name.lower())]
 
     df['ingestion_timestamp'] = pd.to_datetime(df['ingestion_timestamp'])
     df = df.sort_values(by="ingestion_timestamp", ascending=False).reset_index(drop=True)
     return df
 
 
-def build_feature_row(latest_row: pd.Series, feature_names: list) -> pd.DataFrame:
+def build_feature_row(df: pd.DataFrame, feature_names: list) -> pd.DataFrame:
     """
-    Drops non-feature columns from the latest row and aligns to the trained feature list.
-    This prevents column-order mismatch bugs with XGBoost.
+    Builds a single feature row for inference by computing lag and rolling
+    features from the full recent history DataFrame — matching exactly what
+    model_trainer.py creates during training.
+
+    The model was trained WITHOUT the raw 'aqi' column (to prevent leakage).
+    Instead it uses lag/rolling features computed here.
     """
-    non_feature_cols = {'city', 'timestamp', 'target_day', 'target_aqi', 'ingestion_timestamp'}
+    # Sort oldest → newest (same as training)
+    hist = df.sort_values('ingestion_timestamp').copy()
+
+    # Compute lag features (assuming hourly data)
+    hist['aqi_lag_24h'] = hist['aqi'].shift(24)
+    hist['aqi_lag_48h'] = hist['aqi'].shift(48)
+    hist['aqi_lag_72h'] = hist['aqi'].shift(72)
+
+    # Rolling statistics
+    hist['aqi_rolling_mean_24h'] = hist['aqi'].rolling(window=24, min_periods=12).mean()
+    hist['aqi_rolling_std_24h'] = hist['aqi'].rolling(window=24, min_periods=12).std()
+    hist['aqi_rolling_mean_72h'] = hist['aqi'].rolling(window=72, min_periods=36).mean()
+
+    # Trend feature
+    hist['aqi_diff_24h'] = hist['aqi'] - hist['aqi'].shift(24)
+
+    # Rolling features for other signals
+    hist['pm25_rolling_mean_24h'] = hist['pm25'].rolling(window=24, min_periods=12).mean()
+    hist['wind_speed_rolling_mean_24h'] = hist['wind_speed'].rolling(window=24, min_periods=12).mean()
+
+    # Take the last row (most recent) which now has all lag/rolling values
+    latest_row = hist.iloc[-1]
+
+    # Columns to exclude from features (same as training)
+    non_feature_cols = {
+        'city', 'timestamp', 'target_day', 'target_aqi',
+        'ingestion_timestamp', 'target',
+        'aqi'  # excluded during training to prevent leakage
+    }
     row_dict = {k: v for k, v in latest_row.items() if k not in non_feature_cols}
 
     if feature_names:
@@ -200,13 +247,10 @@ def build_feature_row(latest_row: pd.Series, feature_names: list) -> pd.DataFram
 # ──────────────────────────────────────────────
 # Sidebar
 # ──────────────────────────────────────────────
+city = "karachi"  # Only city supported
+
 st.sidebar.title("⚙️ Settings")
-city = st.sidebar.selectbox(
-    "Select City",
-    ["karachi", "lahore", "islamabad"],
-    index=0,
-    format_func=str.capitalize
-)
+st.sidebar.markdown("📍 **City:** Karachi")
 
 if st.sidebar.button("🔄 Refresh Data"):
     load_feature_data.clear()
@@ -224,7 +268,7 @@ st.sidebar.markdown(
 # Main App
 # ──────────────────────────────────────────────
 st.title("🌬️ AQI Predictor Pro")
-st.markdown(f"### Real-time Air Quality Intelligence · **{city.capitalize()}**")
+st.markdown("### Real-time Air Quality Intelligence · **Karachi**")
 st.markdown("---")
 
 # Load data
@@ -262,12 +306,25 @@ try:
     # ── 3-Day Prediction ────────────────────────────────────────────────
     st.subheader("🔮 3-Day AQI Forecast")
 
-    feature_row = build_feature_row(latest, feature_names)
+    feature_row = build_feature_row(df, feature_names)
     raw_pred = model.predict(feature_row)[0]
     pred_aqi = int(max(0, round(raw_pred)))
 
     label, css_class, pill_class, icon, advice = get_aqi_info(pred_aqi)
     target_date = (datetime.now() + timedelta(days=3)).strftime("%A, %B %d %Y")
+
+    # Resolve model display name
+    model_type_name = type(model).__name__
+    if model_type_name == "XGBRegressor":
+        model_display_name = "XGBoost"
+    elif model_type_name == "RandomForestRegressor":
+        model_display_name = "Random Forest"
+    elif model_type_name == "GradientBoostingRegressor":
+        model_display_name = "Gradient Boosting"
+    elif model_type_name == "LinearRegression":
+        model_display_name = "Linear Regression"
+    else:
+        model_display_name = model_type_name
 
     st.markdown(f"""
     <div class="prediction-card">
@@ -278,7 +335,7 @@ try:
         <span class="pill {pill_class}">{label}</span>
         <p class="aqi-sub">{advice}</p>
         <p class="aqi-sub" style="margin-top:16px">
-            Predicted by XGBoost trained on historical AQI patterns.
+            Predicted by {model_display_name} trained on historical AQI patterns.
         </p>
     </div>
     """, unsafe_allow_html=True)

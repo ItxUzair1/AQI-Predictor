@@ -48,7 +48,7 @@ class FeatureStoreIngestion:
             logger.error(f"Failed to connect to Hopsworks: {str(e)}")
             raise CustomException(e, sys)
 
-    def save_to_feature_group(self, df, group_name, version=2):
+    def save_to_feature_group(self, df, group_name, version=3):
         """
         Saves the DataFrame to a Hopsworks Feature Group.
         """

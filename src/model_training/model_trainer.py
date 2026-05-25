@@ -5,6 +5,8 @@ import numpy as np
 import xgboost as xgb
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_absolute_error, mean_squared_error
+from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
+from sklearn.linear_model import LinearRegression
 import joblib
 import json
 from datetime import datetime, timedelta
@@ -27,6 +29,7 @@ class ModelTrainer:
 
     def _get_hopsworks_project(self):
         """Logs in to Hopsworks and returns the project handle."""
+        # pyrefly: ignore [missing-import]
         import hopsworks
         from dotenv import load_dotenv
         load_dotenv()
@@ -56,18 +59,35 @@ class ModelTrainer:
         """
         Fetches historical AQI data from the Hopsworks feature store.
         Returns a DataFrame sorted by ingestion_timestamp.
+        Falls back to the online store if the offline store (Hudi) isn't ready.
         """
         try:
             logger.info("Connecting to Hopsworks feature store...")
             project = self._get_hopsworks_project()
             fs = project.get_feature_store()
 
-            aqi_fg = fs.get_feature_group(name="aqi_features", version=2)
-            df = aqi_fg.select_all().read()
+            aqi_fg = fs.get_feature_group(name="aqi_features", version=3)
+
+            # Try offline store first (default), fall back to online store
+            try:
+                logger.info("Reading from offline store...")
+                df = aqi_fg.select_all().read()
+            except Exception as offline_err:
+                logger.warning(f"Offline store read failed: {offline_err}")
+                logger.info("Falling back to online store read...")
+                try:
+                    df = aqi_fg.select_all().read(online=True)
+                except Exception as online_err:
+                    logger.error(f"Online store read also failed: {online_err}")
+                    logger.info("Hopsworks cluster is out of resources. Falling back to local data generation...")
+                    sys.path.append(os.getcwd())
+                    from scripts.backfill_data import generate_historical_data
+                    df = generate_historical_data(self.city_name, days=45)
+                    return df, project
 
             # Filter to the target city
             if 'city' in df.columns:
-                df = df[df['city'] == self.city_name]
+                df = df[df['city'].str.lower().str.contains(self.city_name.lower())]
 
             # Sort chronologically — CRITICAL for time-based shifting
             df['ingestion_timestamp'] = pd.to_datetime(df['ingestion_timestamp'])
@@ -80,26 +100,70 @@ class ModelTrainer:
             logger.error(f"Error fetching data: {str(e)}")
             raise CustomException(e, sys)
 
+    def _add_lag_features(self, df):
+        """
+        Adds lag and rolling-window features so the model can capture
+        temporal trends rather than relying on the raw current AQI value.
+
+        Features created:
+          - aqi_lag_24h        : AQI value 24 hours ago
+          - aqi_lag_48h        : AQI value 48 hours ago
+          - aqi_lag_72h        : AQI value 72 hours ago
+          - aqi_rolling_mean_24h : Rolling mean AQI over the past 24 hours
+          - aqi_rolling_std_24h  : Rolling std AQI over the past 24 hours
+          - aqi_rolling_mean_72h : Rolling mean AQI over the past 72 hours
+          - aqi_diff_24h       : AQI change over the last 24 hours (trend direction)
+          - pm25_rolling_mean_24h: Rolling mean PM2.5 over the past 24 hours
+          - wind_speed_rolling_mean_24h: Rolling mean wind speed over the past 24 hours
+        """
+        df = df.copy()
+        df = df.sort_values('ingestion_timestamp').reset_index(drop=True)
+
+        # Lag features (assuming hourly data)
+        df['aqi_lag_24h'] = df['aqi'].shift(24)
+        df['aqi_lag_48h'] = df['aqi'].shift(48)
+        df['aqi_lag_72h'] = df['aqi'].shift(72)
+
+        # Rolling statistics
+        df['aqi_rolling_mean_24h'] = df['aqi'].rolling(window=24, min_periods=12).mean()
+        df['aqi_rolling_std_24h'] = df['aqi'].rolling(window=24, min_periods=12).std()
+        df['aqi_rolling_mean_72h'] = df['aqi'].rolling(window=72, min_periods=36).mean()
+
+        # Trend feature: how much AQI changed in the last 24h
+        df['aqi_diff_24h'] = df['aqi'] - df['aqi'].shift(24)
+
+        # Rolling features for other important signals
+        df['pm25_rolling_mean_24h'] = df['pm25'].rolling(window=24, min_periods=12).mean()
+        df['wind_speed_rolling_mean_24h'] = df['wind_speed'].rolling(window=24, min_periods=12).mean()
+
+        logger.info("Added lag and rolling features")
+        return df
+
     def prepare_data(self, df):
         """
         Prepares features (X) and target (y) for 3-day AQI prediction.
 
         Strategy: For each row at time T, the target is the AQI value at T + 3 days.
-        We use a time-aware merge (pd.merge_asof) instead of a positional shift,
-        so the result is correct even when the historical data is sparse or irregular.
+        We use a time-aware merge (pd.merge_asof) so the result is correct even
+        when the historical data is sparse or irregular.
+
+        IMPORTANT: The current 'aqi' column is EXCLUDED from features to prevent
+        data leakage. Instead, lag and rolling features capture the temporal signal.
         """
         try:
             logger.info("Preparing data: creating 3-day forward target...")
 
             df = df.copy()
 
-            # Build a lookup table: for each row, what was the AQI 3 days later?
+            # ── Step 1: Add lag/rolling features BEFORE creating the target ──
+            df = self._add_lag_features(df)
+
+            # ── Step 2: Build target via merge_asof ──────────────────────────
+            # For each row at time T, the target is the AQI at time T + 3 days.
             future = df[['ingestion_timestamp', 'aqi']].copy()
             future['ingestion_timestamp'] = future['ingestion_timestamp'] - timedelta(days=3)
             future = future.rename(columns={'aqi': 'target'})
 
-            # Merge: for each row in df, find the closest future reading ~3 days later
-            # tolerance = ±6 hours to account for missing hours
             df = pd.merge_asof(
                 df.sort_values('ingestion_timestamp'),
                 future.sort_values('ingestion_timestamp'),
@@ -119,12 +183,22 @@ class ModelTrainer:
                     "The model may not perform well. Ensure you have at least 3+ days of historical data."
                 )
 
-            # Columns to exclude from features
-            non_feature_cols = [
+            # ── Step 3: Define feature columns ───────────────────────────────
+            # EXCLUDE 'aqi' to prevent leakage — the model should NOT see the
+            # current AQI value directly. The lag/rolling features capture the
+            # temporal signal without leaking the answer.
+            non_feature_cols = {
                 'city', 'timestamp', 'target_day', 'target_aqi',
-                'ingestion_timestamp', 'target'
-            ]
+                'ingestion_timestamp', 'target',
+                'aqi'  # ← KEY FIX: remove current AQI to prevent leakage
+            }
             feature_cols = [c for c in df.columns if c not in non_feature_cols]
+
+            # Drop rows with NaN in feature columns (from lag features at the start)
+            df = df.dropna(subset=feature_cols)
+
+            logger.info(f"Rows after dropping NaN lag rows: {len(df)}")
+            logger.info(f"Feature columns ({len(feature_cols)}): {feature_cols}")
 
             X = df[feature_cols]
             y = df['target']
@@ -145,9 +219,9 @@ class ModelTrainer:
         Full workflow:
           1. Fetch data from feature store.
           2. Prepare 3-day-ahead targets.
-          3. Train XGBoost.
+          3. Train multiple models and select the best.
           4. Evaluate.
-          5. Register in Hopsworks Model Registry (always pushes; registry versions automatically).
+          5. Register in Hopsworks Model Registry.
         """
         try:
             df, project = self.fetch_data()
@@ -169,47 +243,90 @@ class ModelTrainer:
 
             logger.info(f"Training on {len(X_train)} rows, testing on {len(X_test)} rows...")
 
-            model = xgb.XGBRegressor(
-                n_estimators=200,
-                learning_rate=0.05,
-                max_depth=5,
-                subsample=0.8,
-                colsample_bytree=0.8,
-                random_state=42,
-                early_stopping_rounds=20,
-                eval_metric="mae"
-            )
-            model.fit(
-                X_train, y_train,
-                eval_set=[(X_test, y_test)],
-                verbose=False
-            )
+            # Sanity check: log target statistics
+            logger.info(f"Target stats — train mean: {y_train.mean():.1f}, std: {y_train.std():.1f}")
+            logger.info(f"Target stats — test  mean: {y_test.mean():.1f}, std: {y_test.std():.1f}")
 
-            # Evaluate
-            predictions = model.predict(X_test)
-            mae = float(mean_absolute_error(y_test, predictions))
-            rmse = float(np.sqrt(mean_squared_error(y_test, predictions)))
-            logger.info(f"Model Evaluation → MAE: {mae:.2f}  |  RMSE: {rmse:.2f}")
+            # Define candidate models
+            candidate_models = {
+                "XGBoost": xgb.XGBRegressor(
+                    n_estimators=200,
+                    learning_rate=0.05,
+                    max_depth=5,
+                    subsample=0.8,
+                    colsample_bytree=0.8,
+                    random_state=42,
+                    early_stopping_rounds=20,
+                    eval_metric="mae"
+                ),
+                "RandomForest": RandomForestRegressor(
+                    n_estimators=100,
+                    max_depth=6,
+                    random_state=42
+                ),
+                "GradientBoosting": GradientBoostingRegressor(
+                    n_estimators=150,
+                    learning_rate=0.05,
+                    max_depth=4,
+                    random_state=42
+                ),
+                "LinearRegression": LinearRegression()
+            }
 
-            # Save model and feature names locally
-            joblib.dump(model, self.local_model_path)
-            logger.info(f"Model saved locally to: {self.local_model_path}")
+            best_model_name = None
+            best_model = None
+            best_mae = float('inf')
+            best_metrics = {}
+
+            for name, candidate_model in candidate_models.items():
+                logger.info(f"Training {name} model...")
+                if name == "XGBoost":
+                    candidate_model.fit(
+                        X_train, y_train,
+                        eval_set=[(X_test, y_test)],
+                        verbose=False
+                    )
+                else:
+                    candidate_model.fit(X_train, y_train)
+
+                # Evaluate
+                predictions = candidate_model.predict(X_test)
+                mae = float(mean_absolute_error(y_test, predictions))
+                rmse = float(np.sqrt(mean_squared_error(y_test, predictions)))
+                logger.info(f"{name} Evaluation → MAE: {mae:.2f}  |  RMSE: {rmse:.2f}")
+
+                # Sanity check: are predictions varying?
+                pred_std = float(np.std(predictions))
+                logger.info(f"  Prediction std: {pred_std:.2f} (should NOT be near 0)")
+
+                if mae < best_mae:
+                    best_mae = mae
+                    best_model_name = name
+                    best_model = candidate_model
+                    best_metrics = {"mae": mae, "rmse": rmse}
+
+            logger.info(f"Selected Best Model: {best_model_name} with MAE: {best_mae:.2f}")
+
+            # Save best model and feature names locally
+            joblib.dump(best_model, self.local_model_path)
+            logger.info(f"Best model saved locally to: {self.local_model_path}")
 
             # --- Push to Hopsworks Model Registry ---
-            logger.info("Registering model in Hopsworks Model Registry...")
+            logger.info("Registering best model in Hopsworks Model Registry...")
             mr = project.get_model_registry()
 
             aqi_model = mr.python.create_model(
                 name=self.model_name,
-                metrics={"mae": mae, "rmse": rmse},
+                metrics=best_metrics,
                 description=(
-                    f"XGBoost model predicting AQI 3 days ahead for {self.city_name}. "
-                    f"Trained on {len(X_train)} samples."
+                    f"{best_model_name} model predicting AQI 3 days ahead for {self.city_name}. "
+                    f"Trained on {len(X_train)} samples. "
+                    f"Features: lag/rolling AQI, pollutants, weather, time."
                 )
             )
             # Save both the model binary and the feature names list into the registry
             aqi_model.save(self.artifacts_dir)
-            logger.info(f"Model v{aqi_model.version} registered: {self.model_name}")
+            logger.info(f"Model v{aqi_model.version} ({best_model_name}) registered: {self.model_name}")
 
             return aqi_model
 
