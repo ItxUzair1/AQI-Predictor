@@ -35,7 +35,7 @@ class ModelTrainer:
         load_dotenv()
 
         api_key = os.getenv("HOPSWORKS_API_KEY")
-        project_name = os.getenv("HOPSWORKS_PROJECT_NAME", "AQI_Prediction_ML_System")
+        project_name = os.getenv("HOPSWORKS_PROJECT_NAME", "AQI_Prediction_System_10")
         host = os.getenv("HOPSWORKS_HOST", "eu-west.cloud.hopsworks.ai")
 
         if not api_key:
@@ -68,22 +68,38 @@ class ModelTrainer:
 
             aqi_fg = fs.get_feature_group(name="aqi_features", version=3)
 
-            # Try offline store first (default), fall back to online store
+            # Try offline store first (default), fall back to online store, then local CSV cache
             try:
                 logger.info("Reading from offline store...")
                 df = aqi_fg.select_all().read()
             except Exception as offline_err:
                 logger.warning(f"Offline store read failed: {offline_err}")
-                logger.info("Falling back to online store read...")
-                try:
-                    df = aqi_fg.select_all().read(online=True)
-                except Exception as online_err:
-                    logger.error(f"Online store read also failed: {online_err}")
-                    logger.info("Hopsworks cluster is out of resources. Falling back to local data generation...")
-                    sys.path.append(os.getcwd())
-                    from scripts.backfill_data import generate_historical_data
-                    df = generate_historical_data(self.city_name, days=45)
-                    return df, project
+                logger.info("Checking local offline cache (data/aqi_features.csv)...")
+                local_path = os.path.join("data", "aqi_features.csv")
+                if os.path.exists(local_path):
+                    try:
+                        df = pd.read_csv(local_path)
+                        logger.info(f"Successfully loaded {len(df)} rows from local offline cache.")
+                    except Exception as cache_err:
+                        logger.warning(f"Failed to read local cache: {cache_err}")
+                        df = pd.DataFrame()
+                else:
+                    df = pd.DataFrame()
+                
+                if df.empty:
+                    logger.info("Falling back to online store read...")
+                    try:
+                        df = aqi_fg.select_all().read(online=True)
+                    except Exception as online_err:
+                        logger.error(f"Online store read also failed: {online_err}")
+                        logger.info("Hopsworks cluster is out of resources. Generating fallback data...")
+                        sys.path.append(os.getcwd())
+                        from scripts.backfill_data import generate_historical_data
+                        df = generate_historical_data(self.city_name, days=45)
+                        # Save it locally so next time it is cached
+                        os.makedirs("data", exist_ok=True)
+                        df.to_csv(local_path, index=False)
+                        return df, project
 
             # Filter to the target city
             if 'city' in df.columns:
@@ -283,7 +299,9 @@ class ModelTrainer:
                 if name == "XGBoost":
                     candidate_model.fit(
                         X_train, y_train,
+                        # pyrefly: ignore [unexpected-keyword]
                         eval_set=[(X_test, y_test)],
+                        # pyrefly: ignore [unexpected-keyword]
                         verbose=False
                     )
                 else:

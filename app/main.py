@@ -114,7 +114,7 @@ def get_aqi_info(aqi: int):
 def _hopsworks_login():
     """Connects to Hopsworks using env variables. Returns project handle."""
     api_key      = os.getenv("HOPSWORKS_API_KEY")
-    project_name = os.getenv("HOPSWORKS_PROJECT_NAME", "AQI_Prediction_ML_System")
+    project_name = os.getenv("HOPSWORKS_PROJECT_NAME", "AQI_Prediction_System_10")
     host         = os.getenv("HOPSWORKS_HOST", "eu-west.cloud.hopsworks.ai")
 
     if not api_key:
@@ -177,16 +177,26 @@ def load_feature_data(city_name: str):
     try:
         df = aqi_fg.select_all().read()
     except Exception as e:
-        st.warning("Hopsworks offline store unavailable. Trying online store/fallback...")
-        try:
-            df = aqi_fg.select_all().read(online=True)
-        except Exception as online_e:
-            st.error("Hopsworks cluster overloaded. Generating local fallback data for inference...")
-            import sys
-            import os
-            sys.path.append(os.getcwd())
-            from scripts.backfill_data import generate_historical_data
-            df = generate_historical_data(city_name, days=5)
+        # Fall back to local CSV offline cache first
+        local_path = os.path.join("data", "aqi_features.csv")
+        if os.path.exists(local_path):
+            try:
+                df = pd.read_csv(local_path)
+            except Exception:
+                df = pd.DataFrame()
+        else:
+            df = pd.DataFrame()
+            
+        if df.empty:
+            st.warning("Hopsworks offline store unavailable. Trying online store/fallback...")
+            try:
+                df = aqi_fg.select_all().read(online=True)
+            except Exception as online_e:
+                st.error("Hopsworks cluster overloaded. Generating local fallback data for inference...")
+                import sys
+                sys.path.append(os.getcwd())
+                from scripts.backfill_data import generate_historical_data
+                df = generate_historical_data(city_name, days=5)
 
     if 'city' in df.columns:
         df = df[df['city'].str.lower().str.contains(city_name.lower())]

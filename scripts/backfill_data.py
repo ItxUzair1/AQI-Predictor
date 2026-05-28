@@ -31,20 +31,20 @@ def generate_historical_data(city="Karachi", days=30):
     total_hours = int((end_date - start_date).total_seconds() / 3600) + 1
 
     # ── Build a realistic AQI time-series first ────────────────────────
-    # 1. Slow drift (random walk, mean-reverting around 130 for Karachi)
+    # 1. Slow drift (random walk, mean-reverting around 70 for Karachi in late spring/summer)
     drift = np.zeros(total_hours)
-    drift[0] = np.random.uniform(-20, 20)
+    drift[0] = np.random.uniform(-5, 5)
     for i in range(1, total_hours):
-        drift[i] = drift[i - 1] * 0.998 + np.random.normal(0, 0.5)  # mean-reverts slowly
+        drift[i] = drift[i - 1] * 0.995 + np.random.normal(0, 0.4)
 
-    # 2. Pollution events: 3-5 day spikes that raise AQI by 50-120
+    # 2. Moderate pollution events: smaller spikes in summer due to sea breeze dispersion
     events = np.zeros(total_hours)
     h = 0
     while h < total_hours:
-        if np.random.random() < 0.008:  # ~1 event per 5 days
-            spike_mag = np.random.uniform(50, 120)
-            spike_dur = np.random.randint(48, 120)  # 2-5 days
-            ramp_up = min(spike_dur // 3, 24)
+        if np.random.random() < 0.006:  # ~1 event per 7 days
+            spike_mag = np.random.uniform(15, 35)
+            spike_dur = np.random.randint(24, 72)
+            ramp_up = min(spike_dur // 3, 12)
             for j in range(min(spike_dur, total_hours - h)):
                 if j < ramp_up:
                     events[h + j] = spike_mag * (j / ramp_up)
@@ -56,12 +56,12 @@ def generate_historical_data(city="Karachi", days=30):
         else:
             h += 1
 
-    # 3. Rain clearing events (AQI drops by 30-60 suddenly, recovers over 12-24h)
+    # 3. Rain clearing events (rare in May, but causes sudden drops)
     rain_effect = np.zeros(total_hours)
     for h in range(total_hours):
-        if np.random.random() < 0.003 and events[h] < 20:  # rain during non-events
-            drop = np.random.uniform(30, 60)
-            recovery = np.random.randint(12, 24)
+        if np.random.random() < 0.0015:
+            drop = np.random.uniform(15, 30)
+            recovery = np.random.randint(8, 16)
             for j in range(min(recovery, total_hours - h)):
                 rain_effect[h + j] = -drop * (1 - j / recovery)
 
@@ -71,47 +71,49 @@ def generate_historical_data(city="Karachi", days=30):
         hour = current_time.hour
         day_of_week = current_time.weekday()
 
-        # Diurnal cycle: peak at 8-10 AM (rush hour) and 6-8 PM
-        diurnal = 15 * np.sin((hour - 9) * np.pi / 12) + 10 * np.sin((hour - 19) * np.pi / 6)
+        # Diurnal cycle: peaks around rush hours
+        diurnal = 6 * np.sin((hour - 9) * np.pi / 12) + 4 * np.sin((hour - 19) * np.pi / 6)
 
-        # Weekly cycle: weekdays higher (traffic), weekends lower
-        weekly = 10 if day_of_week < 5 else -15
+        # Weekly cycle
+        weekly = 3 if day_of_week < 5 else -4
 
         # Compose AQI
-        base_aqi = 130 + diurnal + weekly + drift[h_idx] + events[h_idx] + rain_effect[h_idx]
-        base_aqi += np.random.normal(0, 5)  # observation noise
-        base_aqi = max(15, min(400, base_aqi))  # clamp to realistic range
+        base_aqi = 68 + diurnal + weekly + drift[h_idx] + events[h_idx] + rain_effect[h_idx]
+        base_aqi += np.random.normal(0, 2)
+        base_aqi = max(30, min(150, base_aqi))
 
-        # Weather features — loosely correlated with AQI
-        # Higher wind → lower AQI (dispersion)
-        wind_speed = max(0.5, np.random.uniform(2, 8) + (rain_effect[h_idx] / 20))
-        # Temperature: diurnal + seasonal
-        temperature = 28 + 6 * np.sin((hour - 14) * np.pi / 12) + np.random.normal(0, 1.5)
-        # Humidity: inversely correlated with temperature, rain spikes it
-        humidity = 55 - 0.5 * temperature + np.random.normal(0, 5)
-        if rain_effect[h_idx] < -10:
-            humidity += 25
-        humidity = max(20, min(95, humidity))
-        # Pressure
-        pressure = 1012 + np.random.normal(0, 3)
+        # Weather features calibrated to Karachi summer (shown in screenshots)
+        # Wind: 15 to 26 km/h -> 4.2 to 7.2 m/s
+        wind_speed = max(1.5, np.random.uniform(4.0, 7.5) + (rain_effect[h_idx] / 10))
+        # Temperature: 29C to 35C
+        temperature = 31.5 + 3.5 * np.sin((hour - 14) * np.pi / 12) + np.random.normal(0, 0.8)
+        # Humidity: 63% to 89% (coastal humidity)
+        humidity = 76.0 - 1.2 * (temperature - 31.5) + np.random.normal(0, 2.0)
+        if rain_effect[h_idx] < -5:
+            humidity += 12
+        humidity = max(45, min(95, humidity))
+        # Pressure: ~1008 hPa
+        pressure = 1008 + np.random.normal(0, 1.5)
 
-        # Wind inversely affects AQI slightly
-        wind_adjusted_aqi = base_aqi - (wind_speed - 4) * 3
-        wind_adjusted_aqi = max(15, min(400, wind_adjusted_aqi))
+        # Wind dispersion effect
+        wind_adjusted_aqi = base_aqi - (wind_speed - 5.5) * 2
+        wind_adjusted_aqi = max(35, min(140, wind_adjusted_aqi))
 
-        # Pollutants — derive from AQI with independent noise
-        pm25 = wind_adjusted_aqi * np.random.uniform(0.6, 0.95) + np.random.normal(0, 8)
-        pm10 = wind_adjusted_aqi * np.random.uniform(0.35, 0.65) + np.random.normal(0, 5)
-        o3 = np.random.uniform(5, 35) + 8 * np.sin((hour - 13) * np.pi / 8)  # peaks midday
-        no2 = 15 + 10 * (1 if day_of_week < 5 else 0) + np.random.normal(0, 5)  # traffic
-        so2 = np.random.uniform(2, 12) + np.random.normal(0, 2)
-        co = np.random.uniform(0.1, 0.8) + 0.2 * (1 if 7 <= hour <= 10 else 0)
+        # Pollutants scaled correctly to EPA AQI formula (for AQI 35-140)
+        # pm25 range: ~10 to 50 ug/m3
+        pm25 = 12.0 + (wind_adjusted_aqi - 50.0) * (23.4 / 50.0) + np.random.normal(0, 1.0)
+        # pm10 range: ~35 to 130 ug/m3
+        pm10 = 54.0 + (wind_adjusted_aqi - 50.0) * (96.0 / 50.0) + np.random.normal(0, 2.0)
+        
+        o3 = np.random.uniform(10, 25) + 5 * np.sin((hour - 13) * np.pi / 8)
+        no2 = 8 + 6 * (1 if day_of_week < 5 else 0) + np.random.normal(0, 2)
+        so2 = np.random.uniform(1, 6) + np.random.normal(0, 0.8)
+        co = np.random.uniform(0.1, 0.4) + 0.1 * (1 if 7 <= hour <= 10 else 0)
 
         row = {
             'city': f"{city}, Pakistan",
             'timestamp': current_time.strftime('%Y-%m-%d %H:%M:%S'),
             'ingestion_timestamp': current_time,
-            # ── pollutant features ───────────────────────────────────────────
             'aqi': float(round(wind_adjusted_aqi, 1)),
             'pm25': float(max(0, round(pm25, 1))),
             'pm10': float(max(0, round(pm10, 1))),
@@ -123,7 +125,6 @@ def generate_historical_data(city="Karachi", days=30):
             'humidity': float(round(humidity, 1)),
             'pressure': float(round(pressure, 1)),
             'wind_speed': float(round(wind_speed, 1)),
-            # ── targets (reference only; model_trainer creates the real target) ─
             'target_aqi': 0.0,
             'target_day': (current_time + timedelta(days=3)).strftime('%Y-%m-%d'),
         }
@@ -156,11 +157,11 @@ def generate_historical_data(city="Karachi", days=30):
     return df
 
 
-def run_backfill(days=30):
+def run_backfill(days=30, batch_size_days=5, wait_for_job=False):
     try:
         logger.info(f"Starting historical data backfill for Karachi ({days} days)...")
 
-        # 1. Generate historical data
+        # 1. Generate ALL historical data at once
         df = generate_historical_data("Karachi", days=days)
         logger.info(f"Generated {len(df)} rows of historical data "
                     f"({df['ingestion_timestamp'].min()} to {df['ingestion_timestamp'].max()})")
@@ -171,15 +172,72 @@ def run_backfill(days=30):
         logger.info(f"AQI stats — mean: {aqi_mean:.1f}, std: {aqi_std:.1f}, "
                     f"min: {df['aqi'].min():.0f}, max: {df['aqi'].max():.0f}")
 
-        # 2. Upload to Hopsworks v2 feature group
+        # 2. Connect to Hopsworks feature store
+        from src.data_ingestion.feature_store_ingestion import FeatureStoreIngestion
         fs_ingestion = FeatureStoreIngestion()
-        fs_ingestion.save_to_feature_group(df, "aqi_features", version=3)
+        fs = fs_ingestion.get_feature_store()
+
+        # Create/get feature group
+        aqi_fg = fs.get_or_create_feature_group(
+            name="aqi_features",
+            version=3,
+            primary_key=["city", "ingestion_timestamp"],
+            event_time="ingestion_timestamp",
+            description="AQI and weather features for city"
+        )
+
+        # Ensure timestamp is datetime
+        df['timestamp'] = pd.to_datetime(df['timestamp'])
+
+        # 3. Insert in small batches WITHOUT triggering Spark materialization
+        #    This prevents CPU overload on the Hopsworks shared cluster.
+        batch_size_hours = batch_size_days * 24
+        total_rows = len(df)
+        num_batches = (total_rows + batch_size_hours - 1) // batch_size_hours
+
+        logger.info(f"Inserting {total_rows} rows in {num_batches} batches "
+                    f"(~{batch_size_days} days per batch, no Spark until the end)...")
+
+        for i in range(num_batches):
+            start_idx = i * batch_size_hours
+            end_idx = min((i + 1) * batch_size_hours, total_rows)
+            batch_df = df.iloc[start_idx:end_idx].copy()
+
+            batch_num = i + 1
+            is_last_batch = (batch_num == num_batches)
+
+            if is_last_batch:
+                # Last batch: trigger materialization
+                logger.info(f"Batch {batch_num}/{num_batches}: {len(batch_df)} rows "
+                            f"(final — triggering Spark materialization)...")
+                aqi_fg.insert(batch_df, write_options={"wait_for_job": wait_for_job})
+            else:
+                # All other batches: insert WITHOUT Spark job
+                logger.info(f"Batch {batch_num}/{num_batches}: {len(batch_df)} rows "
+                            f"(no Spark job)...")
+                aqi_fg.insert(batch_df, write_options={
+                    "start_offline_materialization": False,
+                    "wait_for_job": False
+                })
+
+        # Update local cache
+        local_path = os.path.join("data", "aqi_features.csv")
+        os.makedirs("data", exist_ok=True)
+        df_to_cache = df.copy()
+        if 'ingestion_timestamp' in df_to_cache.columns:
+            df_to_cache['ingestion_timestamp'] = pd.to_datetime(df_to_cache['ingestion_timestamp']).dt.strftime('%Y-%m-%d %H:%M:%S')
+        df_to_cache.to_csv(local_path, index=False)
+        logger.info(f"Local cache updated with backfill data: {local_path}")
 
         logger.info("Backfill completed successfully!")
-        print(f"\nSUCCESS: Backfilled {len(df)} rows for Karachi into 'aqi_features' v2.")
+        print(f"\nSUCCESS: Backfilled {total_rows} rows for Karachi into 'aqi_features' v3.")
         print(f"  From : {df['ingestion_timestamp'].min()}")
         print(f"  To   : {df['ingestion_timestamp'].max()}")
         print(f"  AQI  : mean={aqi_mean:.1f}, std={aqi_std:.1f}")
+        print(f"  Batches: {num_batches} (Spark materialization triggered on last batch)")
+        if not wait_for_job:
+            print("  Note: Spark materialization is running in the background on Hopsworks.")
+            print("        You can monitor progress in the Hopsworks UI.")
 
     except Exception as e:
         logger.error(f"Backfill failed: {str(e)}")
@@ -189,8 +247,13 @@ def run_backfill(days=30):
 
 if __name__ == "__main__":
     import argparse
-    parser = argparse.ArgumentParser(description="Backfill AQI data into Hopsworks v2 feature group")
+    parser = argparse.ArgumentParser(description="Backfill AQI data into Hopsworks v3 feature group")
     parser.add_argument("--days", type=int, default=30,
                         help="Number of past days to backfill (default: 30)")
+    parser.add_argument("--batch-size", type=int, default=5,
+                        help="Days per batch (default: 5)")
+    parser.add_argument("--wait", action="store_true", default=False,
+                        help="Wait for the final Spark materialization job to complete on Hopsworks (default: False)")
     args = parser.parse_args()
-    run_backfill(days=args.days)
+    run_backfill(days=args.days, batch_size_days=args.batch_size, wait_for_job=args.wait)
+

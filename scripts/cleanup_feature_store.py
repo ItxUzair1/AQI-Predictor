@@ -1,6 +1,7 @@
 import os
 import sys
 sys.path.append(os.getcwd())
+# pyrefly: ignore [missing-import]
 import hopsworks
 from dotenv import load_dotenv
 
@@ -13,7 +14,7 @@ def delete_feature_group(version=3):
     load_dotenv()
 
     api_key = os.getenv("HOPSWORKS_API_KEY")
-    project_name = os.getenv("HOPSWORKS_PROJECT_NAME", "AQI_Prediction_ML_System")
+    project_name = os.getenv("HOPSWORKS_PROJECT_NAME", "AQI_Prediction_System_10")
     host = os.getenv("HOPSWORKS_HOST", "eu-west.cloud.hopsworks.ai")
 
     if not api_key:

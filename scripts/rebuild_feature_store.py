@@ -1,11 +1,11 @@
 """
 rebuild_feature_store.py
 ────────────────────────
-1. Downloads ALL data from Hopsworks v2 feature group.
+1. Downloads ALL data from Hopsworks v3 feature group.
 2. Keeps ONLY real rows (May 7 – May 20, collected by hourly pipeline).
 3. Generates new realistic synthetic data (before May 7) using improved generator.
-4. Deletes the old v2 feature group.
-5. Re-creates v2 with the combined clean dataset (real + new synthetic).
+4. Deletes the old v3 feature group.
+5. Re-creates v3 with the combined clean dataset (real + new synthetic).
 """
 import os
 import sys
@@ -15,6 +15,7 @@ import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta, timezone
 
+# pyrefly: ignore [missing-import]
 import hopsworks
 from dotenv import load_dotenv
 
@@ -34,7 +35,7 @@ SYNTHETIC_DAYS_BEFORE = 60  # generate 60 days of synthetic data before real dat
 
 def get_hopsworks_project():
     api_key = os.getenv("HOPSWORKS_API_KEY")
-    project_name = os.getenv("HOPSWORKS_PROJECT_NAME", "AQI_Prediction_ML_System")
+    project_name = os.getenv("HOPSWORKS_PROJECT_NAME", "AQI_Prediction_System_10")
     host = os.getenv("HOPSWORKS_HOST", "eu-west.cloud.hopsworks.ai")
 
     if not api_key:
@@ -54,13 +55,13 @@ def get_hopsworks_project():
 # Step 1: Download & filter real data
 # ──────────────────────────────────────────────────────────────────────
 def download_real_data(project):
-    """Fetches all v2 data and keeps only real rows from May 7–20."""
-    logger.info("Downloading all data from v2 feature group...")
+    """Fetches all v3 data and keeps only real rows from May 7–20."""
+    logger.info("Downloading all data from v3 feature group...")
     fs = project.get_feature_store()
     fg = fs.get_feature_group(name="aqi_features", version=3)
     df = fg.select_all().read()
 
-    logger.info(f"Total rows in v2: {len(df)}")
+    logger.info(f"Total rows in v3: {len(df)}")
 
     df['ingestion_timestamp'] = pd.to_datetime(df['ingestion_timestamp'], utc=True)
 
@@ -228,21 +229,21 @@ def generate_synthetic_data(real_df, days_before=60):
 # Step 3: Delete old v2 and re-upload clean dataset
 # ──────────────────────────────────────────────────────────────────────
 def delete_old_feature_group(project):
-    """Deletes the v2 feature group entirely."""
+    """Deletes the v3 feature group entirely."""
     fs = project.get_feature_store()
     try:
         fg = fs.get_feature_group("aqi_features", version=3)
         fg.delete()
-        logger.info("Old v2 feature group deleted.")
+        logger.info("Old v3 feature group deleted.")
     except Exception as e:
-        logger.info(f"v2 feature group not found (may already be deleted): {e}")
+        logger.info(f"v3 feature group not found (may already be deleted): {e}")
 
 
 def upload_combined_data(combined_df):
-    """Uploads the combined dataset to a fresh v2 feature group."""
+    """Uploads the combined dataset to a fresh v3 feature group."""
     fs_ingestion = FeatureStoreIngestion()
     fs_ingestion.save_to_feature_group(combined_df, "aqi_features", version=3)
-    logger.info(f"Uploaded {len(combined_df)} rows to fresh v2 feature group.")
+    logger.info(f"Uploaded {len(combined_df)} rows to fresh v3 feature group.")
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -257,12 +258,12 @@ def main():
     project = get_hopsworks_project()
 
     # Step 1: Download and filter real data
-    print("\n📥 Step 1: Downloading real data from v2...")
+    print("\n[STEP 1] Downloading real data from v3...")
     real_df = download_real_data(project)
     print(f"   Found {len(real_df)} real rows")
 
     # Step 2: Generate synthetic data
-    print(f"\n🏭 Step 2: Generating {SYNTHETIC_DAYS_BEFORE} days of synthetic data...")
+    print(f"\n[STEP 2] Generating {SYNTHETIC_DAYS_BEFORE} days of synthetic data...")
     synthetic_df = generate_synthetic_data(real_df, days_before=SYNTHETIC_DAYS_BEFORE)
     print(f"   Generated {len(synthetic_df)} synthetic rows")
 
@@ -276,23 +277,23 @@ def main():
     combined_df = pd.concat([synthetic_df, real_df], ignore_index=True)
     combined_df = combined_df.sort_values('ingestion_timestamp').reset_index(drop=True)
 
-    print(f"\n📊 Combined dataset: {len(combined_df)} total rows")
+    print(f"\n[STATS] Combined dataset: {len(combined_df)} total rows")
     print(f"   Synthetic: {len(synthetic_df)} rows")
     print(f"   Real:      {len(real_df)} rows")
     print(f"   Range:     {combined_df['ingestion_timestamp'].min()} → {combined_df['ingestion_timestamp'].max()}")
     print(f"   AQI mean:  {combined_df['aqi'].mean():.1f}")
     print(f"   AQI std:   {combined_df['aqi'].std():.1f}")
 
-    # Step 5: Delete old v2
-    print("\n🗑️  Step 3: Deleting old v2 feature group...")
+    # Step 5: Delete old v3
+    print("\n[DELETE] Step 3: Deleting old v3 feature group...")
     delete_old_feature_group(project)
 
-    # Step 6: Upload combined data to fresh v2
-    print("\n📤 Step 4: Uploading combined dataset to fresh v2...")
+    # Step 6: Upload combined data to fresh v3
+    print("\n[UPLOAD] Step 4: Uploading combined dataset to fresh v3...")
     upload_combined_data(combined_df)
 
     print("\n" + "=" * 60)
-    print("  ✅ DONE! Feature store rebuilt successfully.")
+    print("  [SUCCESS] Feature store rebuilt successfully.")
     print(f"  Next step: python src/model_training/model_trainer.py")
     print("=" * 60)
 

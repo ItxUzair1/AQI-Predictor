@@ -1,4 +1,5 @@
 import os
+# pyrefly: ignore [missing-import]
 import hopsworks
 import pandas as pd
 from src.logger import get_logger
@@ -12,7 +13,7 @@ logger = get_logger("Feature Store Ingestion")
 class FeatureStoreIngestion:
     def __init__(self):
         self.api_key = os.getenv("HOPSWORKS_API_KEY")
-        self.project_name = os.getenv("HOPSWORKS_PROJECT_NAME", "aqi_prediction")
+        self.project_name = os.getenv("HOPSWORKS_PROJECT_NAME", "AQI_Prediction_System_10")
 
     def get_feature_store(self):
         """
@@ -50,14 +51,34 @@ class FeatureStoreIngestion:
 
     def save_to_feature_group(self, df, group_name, version=3):
         """
-        Saves the DataFrame to a Hopsworks Feature Group.
+        Saves the DataFrame to a Hopsworks Feature Group and maintains a local cache.
         """
         try:
+            # 1. Maintain a local cache in the data directory
+            local_path = os.path.join("data", f"{group_name}.csv")
+            os.makedirs("data", exist_ok=True)
+            df_to_cache = df.copy()
+            if 'ingestion_timestamp' in df_to_cache.columns:
+                df_to_cache['ingestion_timestamp'] = pd.to_datetime(df_to_cache['ingestion_timestamp']).dt.strftime('%Y-%m-%d %H:%M:%S')
+            
+            if os.path.exists(local_path):
+                try:
+                    existing_df = pd.read_csv(local_path)
+                    combined_df = pd.concat([existing_df, df_to_cache], ignore_index=True)
+                    # Deduplicate on PKs to prevent double inserts
+                    combined_df = combined_df.drop_duplicates(subset=["city", "ingestion_timestamp"])
+                    combined_df.to_csv(local_path, index=False)
+                    logger.info(f"Appended rows to local cache: {local_path}")
+                except Exception as cache_err:
+                    logger.warning(f"Failed to append to local cache: {cache_err}")
+            else:
+                df_to_cache.to_csv(local_path, index=False)
+                logger.info(f"Initialized local cache: {local_path}")
+
+            # 2. Push to Hopsworks
             fs = self.get_feature_store()
             
             # Create or get feature group
-            # Use ingestion_timestamp (pipeline run time) as part of PK to ensure
-            # each hourly run creates a NEW row, not an upsert on same station data
             aqi_fg = fs.get_or_create_feature_group(
                 name=group_name,
                 version=version,

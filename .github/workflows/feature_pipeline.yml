@@ -2,7 +2,7 @@ name: AQI Feature Pipeline
 
 on:
   schedule:
-    - cron: '0 * * * *'  # Runs every hour at minute 0
+    - cron: '*/30 * * * *'  # Runs every 30 minutes
   workflow_dispatch:      # Allows manual trigger from GitHub UI
 
 jobs:
