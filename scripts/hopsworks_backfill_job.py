@@ -167,13 +167,14 @@ def run_backfill(days=30):
     fs = project.get_feature_store()
 
     # 2. Clean up old feature group if it exists
-    print("\n🗑️  Cleaning up old feature group (if any)...")
+    print("\n  Cleaning up old feature group (if any)...")
     try:
-        old_fg = fs.get_feature_group("aqi_features", version=3)
+        old_fg = fs.get_feature_group("aqi_features", version=4)
+        print("   Found existing FG v4. Deleting to recreate as regular FG...")
         old_fg.delete()
-        print("   Old v3 feature group deleted.")
-    except Exception:
-        print("   No existing v3 feature group found (OK).")
+        print("   Deleted existing FG v4 successfully.")
+    except Exception as e:
+        print(f"   No existing v4 to delete (OK): {e}")
 
     # 3. Generate data
     print(f"\n🏭 Generating {days} days of historical data...")
@@ -182,11 +183,11 @@ def run_backfill(days=30):
     print(f"   Range: {df['ingestion_timestamp'].min()} → {df['ingestion_timestamp'].max()}")
     print(f"   AQI: mean={df['aqi'].mean():.1f}, std={df['aqi'].std():.1f}")
 
-    # 4. Create fresh feature group and insert
-    print("\n📤 Creating feature group and inserting data...")
-    aqi_fg = fs.get_or_create_feature_group(
+    # 4. Create a fresh REGULAR feature group (NOT StreamFeatureGroup)
+    print("\n📤 Creating fresh regular feature group v4...")
+    aqi_fg = fs.create_feature_group(
         name="aqi_features",
-        version=3,
+        version=4,
         primary_key=["city", "ingestion_timestamp"],
         event_time="ingestion_timestamp",
         description="AQI and weather features for city"

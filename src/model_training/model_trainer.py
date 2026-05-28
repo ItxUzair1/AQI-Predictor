@@ -66,7 +66,7 @@ class ModelTrainer:
             project = self._get_hopsworks_project()
             fs = project.get_feature_store()
 
-            aqi_fg = fs.get_feature_group(name="aqi_features", version=3)
+            aqi_fg = fs.get_feature_group(name="aqi_features", version=4)
 
             # Try offline store first (default), fall back to online store, then local CSV cache
             try:

@@ -49,9 +49,13 @@ class FeatureStoreIngestion:
             logger.error(f"Failed to connect to Hopsworks: {str(e)}")
             raise CustomException(e, sys)
 
-    def save_to_feature_group(self, df, group_name, version=3):
+    def save_to_feature_group(self, df, group_name, version=4):
         """
         Saves the DataFrame to a Hopsworks Feature Group and maintains a local cache.
+        
+        If the existing feature group is a StreamFeatureGroup (requires Kafka),
+        it is automatically recreated as a regular FeatureGroup (uses REST API)
+        to avoid Kafka timeout errors from external clients.
         """
         try:
             # 1. Maintain a local cache in the data directory
@@ -78,14 +82,30 @@ class FeatureStoreIngestion:
             # 2. Push to Hopsworks
             fs = self.get_feature_store()
             
-            # Create or get feature group
+            # Get or create feature group
             aqi_fg = fs.get_or_create_feature_group(
                 name=group_name,
                 version=version,
-                primary_key=["city", "ingestion_timestamp"],
-                event_time="ingestion_timestamp",
+                primary_key=["city", "timestamp"],
+                event_time="timestamp",
                 description="AQI and weather features for city"
             )
+            
+            # Safety check: StreamFeatureGroups require Kafka (port 9092) which
+            # is blocked from external clients. If we got one, recreate as regular FG.
+            fg_type = type(aqi_fg).__name__
+            if fg_type == "StreamFeatureGroup":
+                logger.warning(f"Feature group '{group_name}' v{version} is a StreamFeatureGroup. "
+                              f"Recreating as regular FeatureGroup to avoid Kafka dependency...")
+                aqi_fg.delete()
+                aqi_fg = fs.create_feature_group(
+                    name=group_name,
+                    version=version,
+                    primary_key=["city", "ingestion_timestamp"],
+                    event_time="ingestion_timestamp",
+                    description="AQI and weather features for city"
+                )
+                logger.info("Recreated as regular FeatureGroup successfully.")
             
             # Ensure timestamp is datetime
             if 'timestamp' in df.columns:

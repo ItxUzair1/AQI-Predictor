@@ -6,7 +6,7 @@ import hopsworks
 from dotenv import load_dotenv
 
 
-def delete_feature_group(version=3):
+def delete_feature_group(version=4):
     """
     Deletes the aqi_features feature group from Hopsworks.
     This wipes ALL rows — use before re-backfilling with corrected data.

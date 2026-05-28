@@ -30,7 +30,7 @@ class FeatureIngestionPipeline:
             
             # Step 3: Feature Store Storage
             logger.info("Step 3: Storing features...")
-            self.fs_ingestion.save_to_feature_group(df, "aqi_features", version=3)
+            self.fs_ingestion.save_to_feature_group(df, "aqi_features", version=4)
             
             logger.info("Feature ingestion completed successfully")
             return df

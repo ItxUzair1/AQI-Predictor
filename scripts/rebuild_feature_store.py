@@ -58,7 +58,7 @@ def download_real_data(project):
     """Fetches all v3 data and keeps only real rows from May 7–20."""
     logger.info("Downloading all data from v3 feature group...")
     fs = project.get_feature_store()
-    fg = fs.get_feature_group(name="aqi_features", version=3)
+    fg = fs.get_feature_group(name="aqi_features", version=4)
     df = fg.select_all().read()
 
     logger.info(f"Total rows in v3: {len(df)}")
@@ -232,17 +232,17 @@ def delete_old_feature_group(project):
     """Deletes the v3 feature group entirely."""
     fs = project.get_feature_store()
     try:
-        fg = fs.get_feature_group("aqi_features", version=3)
+        fg = fs.get_feature_group("aqi_features", version=4)
+        logger.info(f"Deleting existing v4 feature group...")
         fg.delete()
-        logger.info("Old v3 feature group deleted.")
+        logger.info("Deleted v4 feature group.")
     except Exception as e:
-        logger.info(f"v3 feature group not found (may already be deleted): {e}")
+        logger.info("No existing v4 feature group found (safe to proceed).")
 
-
-def upload_combined_data(combined_df):
-    """Uploads the combined dataset to a fresh v3 feature group."""
+    # --- Step 4: Create new feature group ---
+    logger.info("Step 4: Uploading rebuilt dataset back to Hopsworks...")
     fs_ingestion = FeatureStoreIngestion()
-    fs_ingestion.save_to_feature_group(combined_df, "aqi_features", version=3)
+    fs_ingestion.save_to_feature_group(combined_df, "aqi_features", version=4)
     logger.info(f"Uploaded {len(combined_df)} rows to fresh v3 feature group.")
 
 

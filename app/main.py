@@ -172,7 +172,7 @@ def load_feature_data(city_name: str):
     project = _hopsworks_login()
     fs = project.get_feature_store()
 
-    aqi_fg = fs.get_feature_group(name="aqi_features", version=3)
+    aqi_fg = fs.get_feature_group(name="aqi_features", version=4)
     
     try:
         df = aqi_fg.select_all().read()
