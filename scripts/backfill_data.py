@@ -5,6 +5,10 @@ import pandas as pd
 import numpy as np
 import requests
 from datetime import datetime, timedelta, timezone
+# pyrefly: ignore [missing-import]
+import hopsworks
+from dotenv import load_dotenv
+load_dotenv()
 
 # Add the project root directory to the Python path
 sys.path.append(os.getcwd())
@@ -133,10 +137,7 @@ def run_backfill(days=30, wait_for_job=False):
         logger.info(f"AQI stats — mean: {aqi_mean:.1f}, std: {aqi_std:.1f}, "
                     f"min: {df['aqi'].min():.0f}, max: {df['aqi'].max():.0f}")
 
-        # 2. Connect to Hopsworks directly
-        import hopsworks
-        from dotenv import load_dotenv
-        load_dotenv()
+
 
         api_key = os.getenv("HOPSWORKS_API_KEY")
         project_name = os.getenv("HOPSWORKS_PROJECT_NAME", "AQI_Prediction_System_10")

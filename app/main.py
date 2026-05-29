@@ -126,6 +126,11 @@ def _hopsworks_login():
         os.makedirs(tmp_dir, exist_ok=True)
         os.environ["TMP"] = tmp_dir
         os.environ["TEMP"] = tmp_dir
+        try:
+            if not os.path.exists("/tmp"):
+                os.makedirs("/tmp", exist_ok=True)
+        except:
+            pass
 
     return hopsworks.login(host=host, project=project_name, api_key_value=api_key)
 
@@ -140,12 +145,11 @@ def load_model(city_name: str):
     mr = project.get_model_registry()
 
     model_name = f"aqi_predictor_{city_name}"
-    # get_best_model picks the version with lowest 'mae' metric
-    try:
-        model_meta = mr.get_best_model(model_name, metric="mae", direction="min")
-    except Exception:
-        # Fallback: get the latest version if no metric is set
-        model_meta = mr.get_model(model_name)
+    
+    # Always get the latest model version so we pick up structural changes (like multi-output)
+    # rather than just the one with the lowest MAE from an old run.
+    models = mr.get_models(model_name)
+    model_meta = max(models, key=lambda m: m.version)
 
     model_dir = model_meta.download()
 
@@ -172,7 +176,7 @@ def load_feature_data(city_name: str):
     project = _hopsworks_login()
     fs = project.get_feature_store()
 
-    aqi_fg = fs.get_feature_group(name="aqi_features", version=4)
+    aqi_fg = fs.get_feature_group(name="aqi_features", version=5)
     
     try:
         df = aqi_fg.select_all().read()
@@ -317,11 +321,12 @@ try:
     st.subheader("🔮 3-Day AQI Forecast")
 
     feature_row = build_feature_row(df, feature_names)
-    raw_pred = model.predict(feature_row)[0]
-    pred_aqi = int(max(0, round(raw_pred)))
+    raw_preds = model.predict(feature_row)[0]  # array of 3 values: [day1, day2, day3]
 
-    label, css_class, pill_class, icon, advice = get_aqi_info(pred_aqi)
-    target_date = (datetime.now() + timedelta(days=3)).strftime("%A, %B %d %Y")
+    # Handle both old single-output models and new multi-output models
+    if np.ndim(raw_preds) == 0:
+        # Old single-output model — show the single prediction in a Day 3 card
+        raw_preds = [None, None, float(raw_preds)]
 
     # Resolve model display name
     model_type_name = type(model).__name__
@@ -333,21 +338,48 @@ try:
         model_display_name = "Gradient Boosting"
     elif model_type_name == "LinearRegression":
         model_display_name = "Linear Regression"
+    elif model_type_name == "MultiOutputRegressor":
+        inner_name = type(model.estimators_[0]).__name__ if hasattr(model, 'estimators_') else "Ensemble"
+        model_display_name = f"Multi-Output {inner_name}"
     else:
         model_display_name = model_type_name
 
+    day_labels = ["Tomorrow", "Day 2", "Day 3"]
+    forecast_cols = st.columns(3)
+
+    for i, (col, day_label) in enumerate(zip(forecast_cols, day_labels)):
+        pred_val = raw_preds[i]
+        if pred_val is None:
+            with col:
+                st.markdown(f"""
+                <div class="prediction-card">
+                    <p style="color:#8b949e; font-size:0.9rem; margin-bottom:4px;">{day_label.upper()}</p>
+                    <div class="aqi-value" style="color:#8b949e;">—</div>
+                    <p class="aqi-sub">Not available (retrain with multi-output model)</p>
+                </div>
+                """, unsafe_allow_html=True)
+            continue
+
+        pred_aqi = int(max(0, round(pred_val)))
+        label, css_class, pill_class, icon, advice = get_aqi_info(pred_aqi)
+        target_date = (datetime.now() + timedelta(days=i + 1)).strftime("%a, %b %d")
+
+        with col:
+            st.markdown(f"""
+            <div class="prediction-card">
+                <p style="color:#8b949e; font-size:0.9rem; margin-bottom:4px;">{day_label.upper()}</p>
+                <p style="font-size:0.95rem; font-weight:600; margin:0">{target_date}</p>
+                <div class="aqi-value {css_class}">{pred_aqi}</div>
+                <div class="aqi-label {css_class}">{icon} {label}</div>
+                <span class="pill {pill_class}">{label}</span>
+                <p class="aqi-sub">{advice}</p>
+            </div>
+            """, unsafe_allow_html=True)
+
     st.markdown(f"""
-    <div class="prediction-card">
-        <p style="color:#8b949e; font-size:0.9rem; margin-bottom:4px;">FORECAST DATE</p>
-        <p style="font-size:1.1rem; font-weight:600; margin:0">{target_date}</p>
-        <div class="aqi-value {css_class}">{pred_aqi}</div>
-        <div class="aqi-label {css_class}">{icon} {label}</div>
-        <span class="pill {pill_class}">{label}</span>
-        <p class="aqi-sub">{advice}</p>
-        <p class="aqi-sub" style="margin-top:16px">
-            Predicted by {model_display_name} trained on historical AQI patterns.
-        </p>
-    </div>
+    <p style="text-align:center; color:#8b949e; font-size:0.85rem; margin-top:16px;">
+        Predicted by <strong>{model_display_name}</strong> trained on historical AQI patterns.
+    </p>
     """, unsafe_allow_html=True)
 
     st.markdown("---")

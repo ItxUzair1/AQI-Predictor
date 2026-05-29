@@ -7,6 +7,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_absolute_error, mean_squared_error
 from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
 from sklearn.linear_model import LinearRegression
+from sklearn.multioutput import MultiOutputRegressor
 import joblib
 import json
 from datetime import datetime, timedelta
@@ -66,7 +67,7 @@ class ModelTrainer:
             project = self._get_hopsworks_project()
             fs = project.get_feature_store()
 
-            aqi_fg = fs.get_feature_group(name="aqi_features", version=4)
+            aqi_fg = fs.get_feature_group(name="aqi_features", version=5)
 
             # Try offline store first (default), fall back to online store, then local CSV cache
             try:
@@ -157,41 +158,54 @@ class ModelTrainer:
 
     def prepare_data(self, df):
         """
-        Prepares features (X) and target (y) for 3-day AQI prediction.
+        Prepares features (X) and targets (y) for multi-day AQI prediction.
 
-        Strategy: For each row at time T, the target is the AQI value at T + 3 days.
-        We use a time-aware merge (pd.merge_asof) so the result is correct even
-        when the historical data is sparse or irregular.
+        Strategy: For each row at time T, we create 3 target columns:
+          - target_day1: AQI at T + 1 day  (tomorrow)
+          - target_day2: AQI at T + 2 days (day after tomorrow)
+          - target_day3: AQI at T + 3 days
+
+        Uses shift-based approach: assuming roughly hourly data,
+        shift by 24/48/72 rows to get 1/2/3-day-ahead targets.
 
         IMPORTANT: The current 'aqi' column is EXCLUDED from features to prevent
         data leakage. Instead, lag and rolling features capture the temporal signal.
         """
         try:
-            logger.info("Preparing data: creating 3-day forward target...")
+            logger.info("Preparing data: creating 3-day forward targets (day1, day2, day3)...")
 
             df = df.copy()
 
-            # ── Step 1: Add lag/rolling features BEFORE creating the target ──
+            # Deduplicate on ingestion_timestamp to avoid issues
+            df = df.drop_duplicates(subset=['ingestion_timestamp']).reset_index(drop=True)
+            logger.info(f"Rows after dedup: {len(df)}")
+
+            # ── Step 1: Add lag/rolling features BEFORE creating the targets ──
             df = self._add_lag_features(df)
 
-            # ── Step 2: Build target via merge_asof ──────────────────────────
-            # For each row at time T, the target is the AQI at time T + 3 days.
-            future = df[['ingestion_timestamp', 'aqi']].copy()
-            future['ingestion_timestamp'] = future['ingestion_timestamp'] - timedelta(days=3)
-            future = future.rename(columns={'aqi': 'target'})
+            # ── Step 2: Build targets using shift ────────────────────────────
+            # Determine the actual cadence (median gap between rows)
+            time_diffs = df['ingestion_timestamp'].diff().dropna()
+            if len(time_diffs) > 0:
+                median_gap_hours = time_diffs.median().total_seconds() / 3600
+                logger.info(f"Median gap between rows: {median_gap_hours:.1f} hours")
+                rows_per_day = max(1, int(round(24 / max(median_gap_hours, 0.1))))
+            else:
+                rows_per_day = 24  # default: assume hourly
+            logger.info(f"Using {rows_per_day} rows per day for shift-based targets")
 
-            df = pd.merge_asof(
-                df.sort_values('ingestion_timestamp'),
-                future.sort_values('ingestion_timestamp'),
-                on='ingestion_timestamp',
-                direction='nearest',
-                tolerance=pd.Timedelta(hours=6)
-            )
+            target_cols = []
+            for horizon_days in [1, 2, 3]:
+                col_name = f'target_day{horizon_days}'
+                shift_amount = rows_per_day * horizon_days
+                # Shift backwards (negative) means "future value at row + shift_amount"
+                df[col_name] = df['aqi'].shift(-shift_amount)
+                target_cols.append(col_name)
 
-            # Drop rows that could not find a target within tolerance
-            df = df.dropna(subset=['target'])
+            # Drop rows that could not find ALL three targets
+            df = df.dropna(subset=target_cols)
 
-            logger.info(f"Rows available for training after 3-day target creation: {len(df)}")
+            logger.info(f"Rows available for training after multi-day target creation: {len(df)}")
 
             if len(df) < 50:
                 logger.warning(
@@ -206,7 +220,8 @@ class ModelTrainer:
             non_feature_cols = {
                 'city', 'timestamp', 'target_day', 'target_aqi',
                 'ingestion_timestamp', 'target',
-                'aqi'  # ← KEY FIX: remove current AQI to prevent leakage
+                'target_day1', 'target_day2', 'target_day3',
+                'aqi'  # ← KEY: remove current AQI to prevent leakage
             }
             feature_cols = [c for c in df.columns if c not in non_feature_cols]
 
@@ -217,7 +232,7 @@ class ModelTrainer:
             logger.info(f"Feature columns ({len(feature_cols)}): {feature_cols}")
 
             X = df[feature_cols]
-            y = df['target']
+            y = df[target_cols]  # DataFrame with 3 columns
 
             # Persist feature column names so the app can align inference features
             with open(self.feature_names_path, 'w') as f:
@@ -260,31 +275,36 @@ class ModelTrainer:
             logger.info(f"Training on {len(X_train)} rows, testing on {len(X_test)} rows...")
 
             # Sanity check: log target statistics
-            logger.info(f"Target stats — train mean: {y_train.mean():.1f}, std: {y_train.std():.1f}")
-            logger.info(f"Target stats — test  mean: {y_test.mean():.1f}, std: {y_test.std():.1f}")
+            # Logging disabled here due to multi-output target format
+            # logger.info(f"Target stats — train  mean: {y_train.mean():.1f}, std: {y_train.std():.1f}")
+            # logger.info(f"Target stats — test  mean: {y_test.mean():.1f}, std: {y_test.std():.1f}")
 
             # Define candidate models
+            # XGBoost and GradientBoosting need MultiOutputRegressor wrappers;
+            # RandomForest and LinearRegression support multi-output natively.
             candidate_models = {
-                "XGBoost": xgb.XGBRegressor(
-                    n_estimators=200,
-                    learning_rate=0.05,
-                    max_depth=5,
-                    subsample=0.8,
-                    colsample_bytree=0.8,
-                    random_state=42,
-                    early_stopping_rounds=20,
-                    eval_metric="mae"
+                "XGBoost": MultiOutputRegressor(
+                    xgb.XGBRegressor(
+                        n_estimators=200,
+                        learning_rate=0.05,
+                        max_depth=5,
+                        subsample=0.8,
+                        colsample_bytree=0.8,
+                        random_state=42,
+                    )
                 ),
                 "RandomForest": RandomForestRegressor(
                     n_estimators=100,
                     max_depth=6,
                     random_state=42
                 ),
-                "GradientBoosting": GradientBoostingRegressor(
-                    n_estimators=150,
-                    learning_rate=0.05,
-                    max_depth=4,
-                    random_state=42
+                "GradientBoosting": MultiOutputRegressor(
+                    GradientBoostingRegressor(
+                        n_estimators=150,
+                        learning_rate=0.05,
+                        max_depth=4,
+                        random_state=42
+                    )
                 ),
                 "LinearRegression": LinearRegression()
             }
@@ -295,23 +315,20 @@ class ModelTrainer:
             best_metrics = {}
 
             for name, candidate_model in candidate_models.items():
-                logger.info(f"Training {name} model...")
-                if name == "XGBoost":
-                    candidate_model.fit(
-                        X_train, y_train,
-                        # pyrefly: ignore [unexpected-keyword]
-                        eval_set=[(X_test, y_test)],
-                        # pyrefly: ignore [unexpected-keyword]
-                        verbose=False
-                    )
-                else:
-                    candidate_model.fit(X_train, y_train)
+                logger.info(f"Training {name} model (multi-output: day1, day2, day3)...")
+                candidate_model.fit(X_train, y_train)
 
-                # Evaluate
+                # Evaluate — predictions shape is (n_samples, 3)
                 predictions = candidate_model.predict(X_test)
                 mae = float(mean_absolute_error(y_test, predictions))
                 rmse = float(np.sqrt(mean_squared_error(y_test, predictions)))
-                logger.info(f"{name} Evaluation → MAE: {mae:.2f}  |  RMSE: {rmse:.2f}")
+
+                # Per-day MAE for logging
+                for i, day_label in enumerate(['Day1', 'Day2', 'Day3']):
+                    day_mae = float(mean_absolute_error(y_test.iloc[:, i], predictions[:, i]))
+                    logger.info(f"  {name} {day_label} MAE: {day_mae:.2f}")
+
+                logger.info(f"{name} Evaluation (avg) → MAE: {mae:.2f}  |  RMSE: {rmse:.2f}")
 
                 # Sanity check: are predictions varying?
                 pred_std = float(np.std(predictions))
@@ -337,8 +354,8 @@ class ModelTrainer:
                 name=self.model_name,
                 metrics=best_metrics,
                 description=(
-                    f"{best_model_name} model predicting AQI 3 days ahead for {self.city_name}. "
-                    f"Trained on {len(X_train)} samples. "
+                    f"{best_model_name} multi-output model predicting AQI for next 3 days for {self.city_name}. "
+                    f"Trained on {len(X_train)} samples. Outputs: [day1, day2, day3]. "
                     f"Features: lag/rolling AQI, pollutants, weather, time."
                 )
             )

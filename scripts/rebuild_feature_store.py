@@ -242,7 +242,9 @@ def delete_old_feature_group(project):
     # --- Step 4: Create new feature group ---
     logger.info("Step 4: Uploading rebuilt dataset back to Hopsworks...")
     fs_ingestion = FeatureStoreIngestion()
+    # pyrefly: ignore [unknown-name]
     fs_ingestion.save_to_feature_group(combined_df, "aqi_features", version=4)
+    # pyrefly: ignore [unknown-name]
     logger.info(f"Uploaded {len(combined_df)} rows to fresh v3 feature group.")
 
 
@@ -290,6 +292,7 @@ def main():
 
     # Step 6: Upload combined data to fresh v3
     print("\n[UPLOAD] Step 4: Uploading combined dataset to fresh v3...")
+    # pyrefly: ignore [unknown-name]
     upload_combined_data(combined_df)
 
     print("\n" + "=" * 60)
