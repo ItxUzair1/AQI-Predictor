@@ -146,10 +146,18 @@ def load_model(city_name: str):
 
     model_name = f"aqi_predictor_{city_name}"
     
-    # Always get the latest model version so we pick up structural changes (like multi-output)
-    # rather than just the one with the lowest MAE from an old run.
+    # Fetch all models
     models = mr.get_models(model_name)
-    model_meta = max(models, key=lambda m: m.version)
+    
+    # Filter for only the new 3-day multi-output models
+    multi_models = [m for m in models if m.description and "multi-output" in m.description.lower()]
+    
+    if multi_models:
+        # Out of the multi-output models, pick the one with the lowest (best) MAE score
+        model_meta = min(multi_models, key=lambda m: m.training_metrics.get("mae", float('inf')))
+    else:
+        # Fallback: just get the latest version if none are labeled multi-output
+        model_meta = max(models, key=lambda m: m.version)
 
     model_dir = model_meta.download()
 
