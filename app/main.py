@@ -153,7 +153,7 @@ def load_model(city_name: str):
     multi_models = [m for m in models if m.description and "multi-output" in m.description.lower()]
     
     if multi_models:
-        # Out of the multi-output models, pick the one with the lowest (best) MAE score
+        # Pick the multi-output model with the lowest (best) MAE score
         model_meta = min(multi_models, key=lambda m: m.training_metrics.get("mae", float('inf')))
     else:
         # Fallback: just get the latest version if none are labeled multi-output
@@ -228,7 +228,10 @@ def build_feature_row(df: pd.DataFrame, feature_names: list) -> pd.DataFrame:
     Instead it uses lag/rolling features computed here.
     """
     # Sort oldest → newest (same as training)
-    hist = df.sort_values('ingestion_timestamp').copy()
+    # Use ingestion_timestamp for sorting since AQICN's 'timestamp' field is frozen/stale
+    hist = df.copy()
+    hist['ingestion_timestamp'] = pd.to_datetime(hist['ingestion_timestamp'])
+    hist = hist.drop_duplicates(subset=['ingestion_timestamp']).sort_values('ingestion_timestamp')
 
     # Compute lag features (assuming hourly data)
     hist['aqi_lag_24h'] = hist['aqi'].shift(24)
@@ -395,8 +398,10 @@ try:
     # ── Historical Trend ────────────────────────────────────────────────
     st.subheader("📈 Recent AQI Trend (Last 48 Hours)")
 
-    trend_df = df.head(48).copy().sort_values('ingestion_timestamp')
-    trend_df = trend_df.set_index('ingestion_timestamp')[['aqi', 'pm25']].dropna()
+    trend_df = df.copy()
+    trend_df['timestamp'] = pd.to_datetime(trend_df['timestamp'])
+    trend_df = trend_df.drop_duplicates(subset=['timestamp']).sort_values('timestamp').tail(48)
+    trend_df = trend_df.set_index('timestamp')[['aqi', 'pm25']].dropna()
 
     st.line_chart(trend_df, use_container_width=True)
 

@@ -107,6 +107,8 @@ class ModelTrainer:
                 df = df[df['city'].str.lower().str.contains(self.city_name.lower())]
 
             # Sort chronologically — CRITICAL for time-based shifting
+            # NOTE: We use ingestion_timestamp (set at pipeline runtime) NOT the API 'timestamp'
+            # because the AQICN station's timestamp field is frozen/stale (stuck at 2025-03-04).
             df['ingestion_timestamp'] = pd.to_datetime(df['ingestion_timestamp'])
             df = df.sort_values(by="ingestion_timestamp").reset_index(drop=True)
 
@@ -176,8 +178,8 @@ class ModelTrainer:
 
             df = df.copy()
 
-            # Deduplicate on the original API timestamp to remove duplicate identical rows caused by slow station updates
-            df = df.drop_duplicates(subset=['timestamp']).reset_index(drop=True)
+            # Deduplicate on ingestion_timestamp to avoid issues
+            df = df.drop_duplicates(subset=['ingestion_timestamp']).reset_index(drop=True)
             logger.info(f"Rows after dedup: {len(df)}")
 
             # ── Step 1: Add lag/rolling features BEFORE creating the targets ──

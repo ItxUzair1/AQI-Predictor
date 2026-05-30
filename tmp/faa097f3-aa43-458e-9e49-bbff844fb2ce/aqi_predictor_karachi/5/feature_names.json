@@ -1,0 +1,1 @@
+["pm25", "pm10", "o3", "no2", "so2", "co", "temperature", "humidity", "pressure", "wind_speed", "hour", "day", "month", "day_of_week", "aqi_lag_24h", "aqi_lag_48h", "aqi_lag_72h", "aqi_rolling_mean_24h", "aqi_rolling_std_24h", "aqi_rolling_mean_72h", "aqi_diff_24h", "pm25_rolling_mean_24h", "wind_speed_rolling_mean_24h"]
