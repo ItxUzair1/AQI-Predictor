@@ -67,7 +67,7 @@ class ModelTrainer:
             project = self._get_hopsworks_project()
             fs = project.get_feature_store()
 
-            aqi_fg = fs.get_feature_group(name="aqi_features", version=5)
+            aqi_fg = fs.get_feature_group(name="aqi_features", version=6)
 
             # Try offline store first (default), fall back to online store, then local CSV cache
             try:
@@ -176,8 +176,8 @@ class ModelTrainer:
 
             df = df.copy()
 
-            # Deduplicate on ingestion_timestamp to avoid issues
-            df = df.drop_duplicates(subset=['ingestion_timestamp']).reset_index(drop=True)
+            # Deduplicate on the original API timestamp to remove duplicate identical rows caused by slow station updates
+            df = df.drop_duplicates(subset=['timestamp']).reset_index(drop=True)
             logger.info(f"Rows after dedup: {len(df)}")
 
             # ── Step 1: Add lag/rolling features BEFORE creating the targets ──

@@ -190,7 +190,7 @@ def main():
         chunk = df.iloc[i:i + chunk_size].copy()
         chunk_num = (i // chunk_size) + 1
         print(f"   Uploading chunk {chunk_num}/{total_chunks} ({len(chunk)} rows)...")
-        fs_ingestion.save_to_feature_group(chunk, "aqi_features", version=5)
+        fs_ingestion.save_to_feature_group(chunk, "aqi_features", version=6)
 
     print("\n" + "=" * 60)
     print(f"  [SUCCESS] Backfilled {len(df)} rows of REAL historical data!")

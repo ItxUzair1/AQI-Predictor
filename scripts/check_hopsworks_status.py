@@ -40,7 +40,7 @@ def main():
     print("\nFetching feature groups...")
     try:
         # Change version to 4 since that's what we are now using
-        aqi_fg = fs.get_feature_group("aqi_features", version=5)
+        aqi_fg = fs.get_feature_group("aqi_features", version=6)
         fgs = fs.get_feature_groups()
         if not fgs:
             print("No feature groups found in the project.")

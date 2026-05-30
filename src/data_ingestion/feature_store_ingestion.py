@@ -49,7 +49,7 @@ class FeatureStoreIngestion:
             logger.error(f"Failed to connect to Hopsworks: {str(e)}")
             raise CustomException(e, sys)
 
-    def save_to_feature_group(self, df, group_name, version=4):
+    def save_to_feature_group(self, df, group_name, version=6):
         """
         Saves the DataFrame to a Hopsworks Feature Group and maintains a local cache.
         
@@ -86,8 +86,8 @@ class FeatureStoreIngestion:
             aqi_fg = fs.get_or_create_feature_group(
                 name=group_name,
                 version=version,
-                primary_key=["city", "timestamp"],
-                event_time="timestamp",
+                primary_key=["city", "ingestion_timestamp"],
+                event_time="ingestion_timestamp",
                 description="AQI and weather features for city"
             )
             
