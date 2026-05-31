@@ -211,7 +211,7 @@ def load_feature_data(city_name: str):
                 df = generate_historical_data(city_name, days=5)
 
     if 'city' in df.columns:
-        df = df[df['city'].str.lower().str.contains(city_name.lower())]
+        df = df[df['city'] == 'Karachi, Pakistan']
 
     df['ingestion_timestamp'] = pd.to_datetime(df['ingestion_timestamp'])
     df = df.sort_values(by="ingestion_timestamp", ascending=False).reset_index(drop=True)

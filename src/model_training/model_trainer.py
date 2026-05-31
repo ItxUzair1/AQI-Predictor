@@ -102,9 +102,11 @@ class ModelTrainer:
                         df.to_csv(local_path, index=False)
                         return df, project
 
-            # Filter to the target city
+            # Filter to the target city — use exact match on 'Karachi, Pakistan'
+            # to exclude stale AQICN rows ('Karachi US Consulate, Pakistan')
+            # which have frozen/identical values and poison the model
             if 'city' in df.columns:
-                df = df[df['city'].str.lower().str.contains(self.city_name.lower())]
+                df = df[df['city'] == 'Karachi, Pakistan']
 
             # Sort chronologically — CRITICAL for time-based shifting
             # NOTE: We use ingestion_timestamp (set at pipeline runtime) NOT the API 'timestamp'
