@@ -470,11 +470,7 @@ try:
             </div>
             """, unsafe_allow_html=True)
 
-    st.markdown(f"""
-    <p style="text-align:center; color:#8b949e; font-size:0.85rem; margin-top:16px;">
-        Predicted by <strong>{model_display_name}</strong> trained on historical AQI patterns.
-    </p>
-    """, unsafe_allow_html=True)
+
 
 except Exception as e:
     st.error(f"Could not load data from Hopsworks: {e}")
