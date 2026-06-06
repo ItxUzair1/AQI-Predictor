@@ -345,107 +345,185 @@ st.title("AQI Predictor")
 st.markdown("### Real-time Air Quality Intelligence · **Karachi**")
 st.markdown("---")
 
-# Load data
-col_status1, col_status2 = st.columns(2)
+# Load and display cached predictions first (Optimistic UI)
+cached_data = None
+cached_file = os.path.join("data", "last_predictions.json")
+if os.path.exists(cached_file):
+    try:
+        with open(cached_file) as f:
+            cached_data = json.load(f)
+    except Exception:
+        pass
 
+# Dynamic placeholders for the dashboard blocks
+status_box = st.empty()
+metrics_container = st.empty()
+forecast_container = st.empty()
+footer_container = st.empty()
+
+def draw_ui(current_conds, predictions, model_display_name, timestamp_str, is_live=True):
+    # 1. Render Status Banner
+    if is_live:
+        status_box.success(f"Loaded live predictions from Hopsworks! (Updated: {timestamp_str})")
+    else:
+        status_box.info(f"Showing cached predictions from {timestamp_str}. Connecting to Hopsworks to fetch live updates...")
+
+    # 2. Render Current Conditions
+    with metrics_container.container():
+        st.subheader("Current Conditions")
+        c1, c2, c3, c4, c5 = st.columns(5)
+        
+        def safe_metric(col, label, value, fmt="{:.0f}", suffix=""):
+            try:
+                col.metric(label, f"{fmt.format(float(value))}{suffix}")
+            except Exception:
+                col.metric(label, "N/A")
+
+        safe_metric(c1, "AQI Now",       current_conds.get('aqi', 0),         "{:.0f}")
+        safe_metric(c2, "PM 2.5",        current_conds.get('pm25', 0),        "{:.1f}")
+        safe_metric(c3, "Temperature",   current_conds.get('temperature', 0), "{:.1f}", "°C")
+        safe_metric(c4, "Humidity",      current_conds.get('humidity', 0),    "{:.0f}", "%")
+        safe_metric(c5, "Wind Speed",    current_conds.get('wind_speed', 0),  "{:.1f}", " m/s")
+        st.markdown("---")
+
+    # 3. Render 3-Day Forecast Cards
+    with forecast_container.container():
+        st.subheader("3-Day AQI Forecast")
+        forecast_cols = st.columns(3)
+        for i, (col, day) in enumerate(zip(forecast_cols, predictions)):
+            with col:
+                st.markdown(f"""
+                <div class="prediction-card">
+                    <p style="color:#a0aec0; font-size:0.85rem; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom:4px;">{day['day_label']}</p>
+                    <p style="font-size:0.95rem; font-weight:600; color:#e2e8f0; margin:0">{day['target_date']}</p>
+                    <div class="aqi-value {day['css_class']}">{day['pred_aqi']}</div>
+                    <div style="margin: 12px 0 6px 0;"><span class="pill {day['pill_class']}">{day['label']}</span></div>
+                    <p class="aqi-sub">{day['advice']}</p>
+                </div>
+                """, unsafe_allow_html=True)
+                
+    # 4. Render Model Info Footer
+    with footer_container.container():
+        st.markdown(f"""
+        <p style="text-align:center; color:#8b949e; font-size:0.85rem; margin-top:16px;">
+            Predicted by <strong>{model_display_name}</strong> trained on historical AQI patterns.
+        </p>
+        """, unsafe_allow_html=True)
+        st.markdown("---")
+
+# Render cached data immediately if available
+if cached_data:
+    draw_ui(
+        current_conds=cached_data["current_conditions"],
+        predictions=cached_data["predictions"],
+        model_display_name=cached_data.get("model_name", "XGBoost"),
+        timestamp_str=cached_data["timestamp"],
+        is_live=False
+    )
+
+# Try fetching fresh data and updating in place
 try:
-    with st.spinner("Connecting to Hopsworks…"):
+    with st.spinner("Connecting to Hopsworks to fetch live data…"):
         model, feature_names = load_model(city)
         df = load_feature_data(city)
 
     if df.empty:
-        st.warning("No data found for this city in the feature store. Run the ingestion pipeline first.")
-        st.stop()
-
-    latest = df.iloc[0]
-
-    # ── Current Conditions ──────────────────────────────────────────────
-    st.subheader("Current Conditions")
-    c1, c2, c3, c4, c5 = st.columns(5)
-
-    def safe_metric(col, label, value, fmt="{:.0f}", suffix=""):
-        try:
-            col.metric(label, f"{fmt.format(float(value))}{suffix}")
-        except Exception:
-            col.metric(label, "N/A")
-
-    safe_metric(c1, "AQI Now",       latest.get('aqi', 0),         "{:.0f}")
-    safe_metric(c2, "PM 2.5",        latest.get('pm25', 0),        "{:.1f}")
-    safe_metric(c3, "Temperature",   latest.get('temperature', 0), "{:.1f}", "°C")
-    safe_metric(c4, "Humidity",      latest.get('humidity', 0),    "{:.0f}", "%")
-    safe_metric(c5, "Wind Speed",    latest.get('wind_speed', 0),  "{:.1f}", " m/s")
-
-    st.markdown("---")
-
-    # ── 3-Day Prediction ────────────────────────────────────────────────
-    st.subheader("3-Day AQI Forecast")
-
-    feature_row = build_feature_row(df, feature_names)
-    raw_preds = model.predict(feature_row)[0]  # array of 3 values: [day1, day2, day3]
-
-    # Handle both old single-output models and new multi-output models
-    if np.ndim(raw_preds) == 0:
-        # Old single-output model — show the single prediction in a Day 3 card
-        raw_preds = [None, None, float(raw_preds)]
-
-    # Resolve model display name
-    model_type_name = type(model).__name__
-    if model_type_name == "XGBRegressor":
-        model_display_name = "XGBoost"
-    elif model_type_name == "RandomForestRegressor":
-        model_display_name = "Random Forest"
-    elif model_type_name == "GradientBoostingRegressor":
-        model_display_name = "Gradient Boosting"
-    elif model_type_name == "LinearRegression":
-        model_display_name = "Linear Regression"
-    elif model_type_name == "MultiOutputRegressor":
-        inner_name = type(model.estimators_[0]).__name__ if hasattr(model, 'estimators_') else "Ensemble"
-        model_display_name = f"Multi-Output {inner_name}"
+        if not cached_data:
+            st.warning("No data found for this city in the feature store. Run the ingestion pipeline first.")
+            st.stop()
     else:
-        model_display_name = model_type_name
+        latest = df.iloc[0]
+        current_conds = {
+            "aqi": float(latest.get('aqi', 0)),
+            "pm25": float(latest.get('pm25', 0)),
+            "temperature": float(latest.get('temperature', 0)),
+            "humidity": float(latest.get('humidity', 0)),
+            "wind_speed": float(latest.get('wind_speed', 0))
+        }
 
-    day_labels = ["Tomorrow", "Day 2", "Day 3"]
-    forecast_cols = st.columns(3)
+        # Make predictions
+        feature_row = build_feature_row(df, feature_names)
+        raw_preds = model.predict(feature_row)[0]
 
-    for i, (col, day_label) in enumerate(zip(forecast_cols, day_labels)):
-        pred_val = raw_preds[i]
-        if pred_val is None:
-            with col:
-                st.markdown(f"""
-                <div class="prediction-card">
-                    <p style="color:#a0aec0; font-size:0.85rem; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom:4px;">{day_label}</p>
-                    <div class="aqi-value" style="color:#8b949e;">—</div>
-                    <p class="aqi-sub">Not available (retrain with multi-output model)</p>
-                </div>
-                """, unsafe_allow_html=True)
-            continue
+        if np.ndim(raw_preds) == 0:
+            raw_preds = [None, None, float(raw_preds)]
 
-        pred_aqi = int(max(0, round(pred_val)))
-        label, css_class, pill_class, advice = get_aqi_info(pred_aqi)
-        target_date = (datetime.now() + timedelta(days=i + 1)).strftime("%a, %b %d")
+        # Resolve model name
+        model_type_name = type(model).__name__
+        if model_type_name == "XGBRegressor":
+            model_display_name = "XGBoost"
+        elif model_type_name == "RandomForestRegressor":
+            model_display_name = "Random Forest"
+        elif model_type_name == "GradientBoostingRegressor":
+            model_display_name = "Gradient Boosting"
+        elif model_type_name == "LinearRegression":
+            model_display_name = "Linear Regression"
+        elif model_type_name == "MultiOutputRegressor":
+            inner_name = type(model.estimators_[0]).__name__ if hasattr(model, 'estimators_') else "Ensemble"
+            model_display_name = f"Multi-Output {inner_name}"
+        else:
+            model_display_name = model_type_name
 
-        with col:
-            st.markdown(f"""
-            <div class="prediction-card">
-                <p style="color:#a0aec0; font-size:0.85rem; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom:4px;">{day_label}</p>
-                <p style="font-size:0.95rem; font-weight:600; color:#e2e8f0; margin:0">{target_date}</p>
-                <div class="aqi-value {css_class}">{pred_aqi}</div>
-                <div style="margin: 12px 0 6px 0;"><span class="pill {pill_class}">{label}</span></div>
-                <p class="aqi-sub">{advice}</p>
-            </div>
-            """, unsafe_allow_html=True)
+        predictions = []
+        day_labels = ["Tomorrow", "Day 2", "Day 3"]
+        for i, day_label in enumerate(day_labels):
+            pred_val = raw_preds[i]
+            if pred_val is None:
+                predictions.append({
+                    "day_label": day_label,
+                    "target_date": "N/A",
+                    "pred_aqi": "—",
+                    "label": "Unavailable",
+                    "css_class": "aqi-hazardous",
+                    "pill_class": "pill-hazardous",
+                    "advice": "Retrain with multi-output model."
+                })
+            else:
+                pred_aqi = int(max(0, round(pred_val)))
+                label, css_class, pill_class, advice = get_aqi_info(pred_aqi)
+                target_date = (datetime.now() + timedelta(days=i + 1)).strftime("%a, %b %d")
+                predictions.append({
+                    "day_label": day_label,
+                    "target_date": target_date,
+                    "pred_aqi": pred_aqi,
+                    "label": label,
+                    "css_class": css_class,
+                    "pill_class": pill_class,
+                    "advice": advice
+                })
 
-    st.markdown(f"""
-    <p style="text-align:center; color:#8b949e; font-size:0.85rem; margin-top:16px;">
-        Predicted by <strong>{model_display_name}</strong> trained on historical AQI patterns.
-    </p>
-    """, unsafe_allow_html=True)
+        now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    st.markdown("---")
+        # Overwrite placeholders with live data
+        draw_ui(
+            current_conds=current_conds,
+            predictions=predictions,
+            model_display_name=model_display_name,
+            timestamp_str=now_str,
+            is_live=True
+        )
+
+        # Update cache file
+        try:
+            os.makedirs("data", exist_ok=True)
+            with open(cached_file, "w") as f:
+                json.dump({
+                    "timestamp": now_str,
+                    "current_conditions": current_conds,
+                    "predictions": predictions,
+                    "model_name": model_display_name
+                }, f, indent=4)
+        except Exception:
+            pass
 
 except Exception as e:
-    st.error(f"Could not load data: {e}")
-    st.info("Make sure your `.env` file has valid `HOPSWORKS_API_KEY` and the pipeline has been run at least once.")
+    # If live load fails, fall back to showing cached data with a warning
+    if cached_data:
+        status_box.warning(f"Could not connect to Hopsworks ({e}). Displaying cached predictions from {cached_data['timestamp']}.")
+    else:
+        st.error(f"Could not load data from Hopsworks: {e}")
+        st.info("Make sure your `.env` file has valid `HOPSWORKS_API_KEY`.")
+
 
 st.markdown("---")
 st.caption("Powered by XGBoost · Hopsworks Feature Store & Model Registry · AQICN API")
