@@ -1,0 +1,40 @@
+{
+    "timestamp": "2026-06-06 11:30:00",
+    "current_conditions": {
+        "aqi": 70.0,
+        "pm25": 21.8,
+        "temperature": 32.5,
+        "humidity": 65.0,
+        "wind_speed": 16.1
+    },
+    "predictions": [
+        {
+            "day_label": "Tomorrow",
+            "target_date": "Sun, Jun 07",
+            "pred_aqi": 70,
+            "label": "Moderate",
+            "css_class": "aqi-moderate",
+            "pill_class": "pill-moderate",
+            "advice": "Acceptable for most people."
+        },
+        {
+            "day_label": "Day 2",
+            "target_date": "Mon, Jun 08",
+            "pred_aqi": 73,
+            "label": "Moderate",
+            "css_class": "aqi-moderate",
+            "pill_class": "pill-moderate",
+            "advice": "Acceptable for most people."
+        },
+        {
+            "day_label": "Day 3",
+            "target_date": "Tue, Jun 09",
+            "pred_aqi": 77,
+            "label": "Moderate",
+            "css_class": "aqi-moderate",
+            "pill_class": "pill-moderate",
+            "advice": "Acceptable for most people."
+        }
+    ],
+    "model_name": "XGBoost"
+}
