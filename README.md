@@ -1,4 +1,6 @@
-# AQI Predictor Pro: Multi-Day Air Quality Forecasting
+# AQI Predictor: Multi-Day Air Quality Forecasting
+
+ **Live Deployed App**: [AQI Predictor Live Dashboard](https://aqi-predictor-g45yndvyqehecvzgyzqdnv.streamlit.app/)
 
 An automated Machine Learning system designed to forecast the Air Quality Index (AQI) for the next 3 days (**Day 1, Day 2, and Day 3**) in Karachi, Pakistan. The system integrates a real-time data ingestion pipeline, a feature store (Hopsworks), multi-output regression models, and a sleek, dark-mode Streamlit dashboard.
 

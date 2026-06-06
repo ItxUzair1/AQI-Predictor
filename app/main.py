@@ -382,6 +382,8 @@ if os.path.exists(cached_file):
         pass
 
 # ── Live Forecast (Connected to Hopsworks) ──
+st.subheader("Live Predictions")
+
 try:
     with st.spinner("Connecting to Hopsworks to fetch live data…"):
         model, feature_names = load_model(city)
