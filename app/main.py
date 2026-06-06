@@ -190,25 +190,11 @@ def _hopsworks_login():
 
 
 @st.cache_resource(show_spinner="Loading model from registry…")
-def load_model(city_name: str, force_refresh: bool = False):
+def load_model(city_name: str):
     """
     Downloads the BEST (latest) registered model from Hopsworks Model Registry.
     Returns (model, feature_names_list).
     """
-    local_model_path = os.path.join("artifacts", "model.joblib")
-    local_features_path = os.path.join("artifacts", "feature_names.json")
-
-    # If not forcing refresh, check if local artifacts exist (instant loading)
-    if not force_refresh:
-        if os.path.exists(local_model_path) and os.path.exists(local_features_path):
-            try:
-                model = joblib.load(local_model_path)
-                with open(local_features_path) as f:
-                    feature_names = json.load(f)
-                return model, feature_names
-            except Exception:
-                pass
-
     project = _hopsworks_login()
     mr = project.get_model_registry()
 
@@ -230,8 +216,7 @@ def load_model(city_name: str, force_refresh: bool = False):
     model_dir = model_meta.download()
 
     # Load the XGBoost model
-    model_path = os.path.join(model_dir, "model.joblib")
-    model = joblib.load(model_path)
+    model = joblib.load(os.path.join(model_dir, "model.joblib"))
 
     # Load saved feature names (saved during training)
     feature_names_file = os.path.join(model_dir, "feature_names.json")
@@ -241,42 +226,15 @@ def load_model(city_name: str, force_refresh: bool = False):
     else:
         feature_names = None
 
-    # Overwrite local cache for future fast loading
-    try:
-        import shutil
-        os.makedirs("artifacts", exist_ok=True)
-        shutil.copy2(model_path, local_model_path)
-        if feature_names:
-            with open(local_features_path, 'w') as f:
-                json.dump(feature_names, f)
-    except Exception:
-        pass
-
     return model, feature_names
 
 
 @st.cache_data(show_spinner="Fetching latest data from feature store…", ttl=3600)
-def load_feature_data(city_name: str, force_refresh: bool = False):
+def load_feature_data(city_name: str):
     """
     Fetches the most recent rows from the Hopsworks feature store.
     Returns a DataFrame sorted newest-first.
     """
-    local_path = os.path.join("data", "aqi_features.csv")
-
-    # If not forcing refresh, try to read from local CSV cache first for instant startup
-    if not force_refresh:
-        if os.path.exists(local_path):
-            try:
-                df = pd.read_csv(local_path)
-                if not df.empty:
-                    if 'city' in df.columns:
-                        df = df[df['city'] == 'Karachi, Pakistan']
-                    df['ingestion_timestamp'] = pd.to_datetime(df['ingestion_timestamp'])
-                    df = df.sort_values(by="ingestion_timestamp", ascending=False).reset_index(drop=True)
-                    return df
-            except Exception:
-                pass
-
     project = _hopsworks_login()
     fs = project.get_feature_store()
 
@@ -286,20 +244,21 @@ def load_feature_data(city_name: str, force_refresh: bool = False):
         # Try online store first (MySQL NDB) for low-latency real-time inference (milliseconds)
         df = aqi_fg.select_all().read(online=True)
     except Exception as online_e:
-        # Fall back to local CSV cache
-        if os.path.exists(local_path):
-            try:
-                df = pd.read_csv(local_path)
-            except Exception:
+        # Fall back to offline store (Hive/Presto) which takes 15-30 seconds
+        try:
+            df = aqi_fg.select_all().read()
+        except Exception as offline_e:
+            # Fall back to local CSV cache
+            local_path = os.path.join("data", "aqi_features.csv")
+            if os.path.exists(local_path):
+                try:
+                    df = pd.read_csv(local_path)
+                except Exception:
+                    df = pd.DataFrame()
+            else:
                 df = pd.DataFrame()
-        else:
-            df = pd.DataFrame()
-            
-        if df.empty:
-            # Fall back to offline store (Hive/Presto) which takes 15-30 seconds
-            try:
-                df = aqi_fg.select_all().read()
-            except Exception as offline_e:
+                
+            if df.empty:
                 st.error("Hopsworks cluster overloaded. Generating local fallback data for inference...")
                 import sys
                 sys.path.append(os.getcwd())
@@ -311,14 +270,6 @@ def load_feature_data(city_name: str, force_refresh: bool = False):
 
     df['ingestion_timestamp'] = pd.to_datetime(df['ingestion_timestamp'])
     df = df.sort_values(by="ingestion_timestamp", ascending=False).reset_index(drop=True)
-
-    # Save to local cache for future fast loading
-    try:
-        os.makedirs("data", exist_ok=True)
-        df.to_csv(local_path, index=False)
-    except Exception:
-        pass
-
     return df
 
 
@@ -382,16 +333,9 @@ st.sidebar.title("Settings")
 st.sidebar.markdown("**City:** Karachi")
 
 if st.sidebar.button("Refresh Data"):
-    # Clear cache and trigger a live fetch
-    st.cache_resource.clear()
-    st.cache_data.clear()
-    st.session_state["force_refresh"] = True
+    load_feature_data.clear()
+    load_model.clear()
     st.rerun()
-
-# Read the state parameter and reset it so it doesn't loop
-force_refresh = st.session_state.get("force_refresh", False)
-if "force_refresh" in st.session_state:
-    st.session_state["force_refresh"] = False
 
 
 # ──────────────────────────────────────────────
@@ -406,8 +350,8 @@ col_status1, col_status2 = st.columns(2)
 
 try:
     with st.spinner("Connecting to Hopsworks…"):
-        model, feature_names = load_model(city, force_refresh=force_refresh)
-        df = load_feature_data(city, force_refresh=force_refresh)
+        model, feature_names = load_model(city)
+        df = load_feature_data(city)
 
     if df.empty:
         st.warning("No data found for this city in the feature store. Run the ingestion pipeline first.")
