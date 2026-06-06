@@ -21,7 +21,7 @@ load_dotenv()
 # Page Configuration
 # ──────────────────────────────────────────────
 st.set_page_config(
-    page_title="AQI Predictor Pro",
+    page_title="AQI Predictor",
     page_icon="chart_with_upwards_trend",
     layout="wide"
 )
@@ -41,6 +41,19 @@ html, body, [class*="css"] {
     background: linear-gradient(135deg, #0d1117 0%, #161b27 100%); 
 }
 
+/* Header styling for transparent glassmorphic blur and border */
+header[data-testid="stHeader"] {
+    background-color: rgba(13, 17, 23, 0.7) !important;
+    backdrop-filter: blur(12px) !important;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
+}
+
+/* Ensure header controls (Deploy button, Main Menu, Stop button) are bright and visible */
+header[data-testid="stHeader"] button, header[data-testid="stHeader"] span, header[data-testid="stHeader"] svg {
+    color: #ffffff !important;
+    fill: #ffffff !important;
+}
+
 /* Force light text color for all typography in main container */
 h1, h2, h3, h4, h5, h6, p, span, li, label, .stMarkdown, [data-testid="stMetricLabel"] {
     color: #f0f6fc !important;
@@ -52,6 +65,22 @@ h1, h2, h3, h4, h5, h6, p, span, li, label, .stMarkdown, [data-testid="stMetricL
     font-weight: 700 !important;
     color: #ffffff !important;
 }
+
+/* Alerts, spinners and status widget customizations (removes white backgrounds) */
+div[data-testid="stAlert"], div[data-testid="stStatusWidget"], div.stAlert {
+    background-color: rgba(255, 255, 255, 0.04) !important;
+    border: 1px solid rgba(255, 255, 255, 0.08) !important;
+    border-radius: 12px !important;
+}
+
+div[data-testid="stAlert"] p, div[data-testid="stAlert"] span, div[data-testid="stStatusWidget"] p {
+    color: #f0f6fc !important;
+}
+
+div[data-testid="stSpinner"] {
+    background: transparent !important;
+}
+
 
 /* Force premium dark styling for sidebar */
 [data-testid="stSidebar"] {
@@ -161,11 +190,25 @@ def _hopsworks_login():
 
 
 @st.cache_resource(show_spinner="Loading model from registry…")
-def load_model(city_name: str):
+def load_model(city_name: str, force_refresh: bool = False):
     """
     Downloads the BEST (latest) registered model from Hopsworks Model Registry.
     Returns (model, feature_names_list).
     """
+    local_model_path = os.path.join("artifacts", "model.joblib")
+    local_features_path = os.path.join("artifacts", "feature_names.json")
+
+    # If not forcing refresh, check if local artifacts exist (instant loading)
+    if not force_refresh:
+        if os.path.exists(local_model_path) and os.path.exists(local_features_path):
+            try:
+                model = joblib.load(local_model_path)
+                with open(local_features_path) as f:
+                    feature_names = json.load(f)
+                return model, feature_names
+            except Exception:
+                pass
+
     project = _hopsworks_login()
     mr = project.get_model_registry()
 
@@ -187,7 +230,8 @@ def load_model(city_name: str):
     model_dir = model_meta.download()
 
     # Load the XGBoost model
-    model = joblib.load(os.path.join(model_dir, "model.joblib"))
+    model_path = os.path.join(model_dir, "model.joblib")
+    model = joblib.load(model_path)
 
     # Load saved feature names (saved during training)
     feature_names_file = os.path.join(model_dir, "feature_names.json")
@@ -195,17 +239,44 @@ def load_model(city_name: str):
         with open(feature_names_file) as f:
             feature_names = json.load(f)
     else:
-        feature_names = None  # will handle gracefully later
+        feature_names = None
+
+    # Overwrite local cache for future fast loading
+    try:
+        import shutil
+        os.makedirs("artifacts", exist_ok=True)
+        shutil.copy2(model_path, local_model_path)
+        if feature_names:
+            with open(local_features_path, 'w') as f:
+                json.dump(feature_names, f)
+    except Exception:
+        pass
 
     return model, feature_names
 
 
 @st.cache_data(show_spinner="Fetching latest data from feature store…", ttl=3600)
-def load_feature_data(city_name: str):
+def load_feature_data(city_name: str, force_refresh: bool = False):
     """
     Fetches the most recent rows from the Hopsworks feature store.
     Returns a DataFrame sorted newest-first.
     """
+    local_path = os.path.join("data", "aqi_features.csv")
+
+    # If not forcing refresh, try to read from local CSV cache first for instant startup
+    if not force_refresh:
+        if os.path.exists(local_path):
+            try:
+                df = pd.read_csv(local_path)
+                if not df.empty:
+                    if 'city' in df.columns:
+                        df = df[df['city'] == 'Karachi, Pakistan']
+                    df['ingestion_timestamp'] = pd.to_datetime(df['ingestion_timestamp'])
+                    df = df.sort_values(by="ingestion_timestamp", ascending=False).reset_index(drop=True)
+                    return df
+            except Exception:
+                pass
+
     project = _hopsworks_login()
     fs = project.get_feature_store()
 
@@ -216,7 +287,6 @@ def load_feature_data(city_name: str):
         df = aqi_fg.select_all().read(online=True)
     except Exception as online_e:
         # Fall back to local CSV cache
-        local_path = os.path.join("data", "aqi_features.csv")
         if os.path.exists(local_path):
             try:
                 df = pd.read_csv(local_path)
@@ -241,6 +311,14 @@ def load_feature_data(city_name: str):
 
     df['ingestion_timestamp'] = pd.to_datetime(df['ingestion_timestamp'])
     df = df.sort_values(by="ingestion_timestamp", ascending=False).reset_index(drop=True)
+
+    # Save to local cache for future fast loading
+    try:
+        os.makedirs("data", exist_ok=True)
+        df.to_csv(local_path, index=False)
+    except Exception:
+        pass
+
     return df
 
 
@@ -304,16 +382,22 @@ st.sidebar.title("Settings")
 st.sidebar.markdown("**City:** Karachi")
 
 if st.sidebar.button("Refresh Data"):
-    load_feature_data.clear()
-    load_model.clear()
+    # Clear cache and trigger a live fetch
+    st.cache_resource.clear()
+    st.cache_data.clear()
+    st.session_state["force_refresh"] = True
     st.rerun()
 
+# Read the state parameter and reset it so it doesn't loop
+force_refresh = st.session_state.get("force_refresh", False)
+if "force_refresh" in st.session_state:
+    st.session_state["force_refresh"] = False
 
 
 # ──────────────────────────────────────────────
 # Main App
 # ──────────────────────────────────────────────
-st.title("AQI Predictor Pro")
+st.title("AQI Predictor")
 st.markdown("### Real-time Air Quality Intelligence · **Karachi**")
 st.markdown("---")
 
@@ -322,8 +406,8 @@ col_status1, col_status2 = st.columns(2)
 
 try:
     with st.spinner("Connecting to Hopsworks…"):
-        model, feature_names = load_model(city)
-        df = load_feature_data(city)
+        model, feature_names = load_model(city, force_refresh=force_refresh)
+        df = load_feature_data(city, force_refresh=force_refresh)
 
     if df.empty:
         st.warning("No data found for this city in the feature store. Run the ingestion pipeline first.")
