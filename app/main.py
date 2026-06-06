@@ -345,6 +345,43 @@ st.title("AQI Predictor")
 st.markdown("### Real-time Air Quality Intelligence · **Karachi**")
 st.markdown("---")
 
+# ── Past Predictions (Historical Performance) ──
+st.subheader("Historical Model Validation (Past Predictions)")
+st.markdown("Comparing past predictions against actual observed AQI values to validate model accuracy.")
+
+past_file = os.path.join("data", "past_predictions.json")
+if os.path.exists(past_file):
+    try:
+        with open(past_file) as f:
+            past_data = json.load(f)
+        
+        past_cols = st.columns(3)
+        for i, (col, day) in enumerate(zip(past_cols, past_data)):
+            with col:
+                st.markdown(f"""
+                <div class="prediction-card" style="border: 1px dashed rgba(255, 255, 255, 0.15); background: rgba(255, 255, 255, 0.02); padding: 25px 20px;">
+                    <p style="color:#e2e8f0; font-size:0.95rem; font-weight:600; margin-bottom:4px; text-align:center;">{day['date']}</p>
+                    <div style="display: flex; justify-content: space-around; align-items: center; margin: 15px 0;">
+                        <div style="text-align: center;">
+                            <p style="font-size:0.75rem; color:#8b949e; margin:0; text-transform: uppercase;">Predicted</p>
+                            <p class="{day['css_class']}" style="font-size:32px; font-weight:900; margin:0; line-height:1.2;">{day['predicted_aqi']}</p>
+                        </div>
+                        <div style="border-left: 1px solid rgba(255, 255, 255, 0.1); height: 35px;"></div>
+                        <div style="text-align: center;">
+                            <p style="font-size:0.75rem; color:#8b949e; margin:0; text-transform: uppercase;">Actual</p>
+                            <p class="{day['css_class']}" style="font-size:32px; font-weight:900; margin:0; line-height:1.2;">{day['actual_aqi']}</p>
+                        </div>
+                    </div>
+                    <div style="text-align: center; margin: 8px 0 4px 0;"><span class="pill {day['pill_class']}">{day['label']}</span></div>
+                    <p style="font-size:0.85rem; color:#10b981; font-weight:600; margin:0; text-align:center;">Accuracy: {day['accuracy']}</p>
+                </div>
+                """, unsafe_allow_html=True)
+    except Exception as e:
+        st.error(f"Error loading past predictions: {e}")
+
+st.markdown("---")
+
+# ── Live Forecast (Connected to Hopsworks) ──
 # Load and display cached predictions first (Optimistic UI)
 cached_data = None
 cached_file = os.path.join("data", "last_predictions.json")

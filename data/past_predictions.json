@@ -1,0 +1,29 @@
+[
+    {
+        "date": "Wed, Jun 03",
+        "predicted_aqi": 72,
+        "actual_aqi": 70,
+        "label": "Moderate",
+        "css_class": "aqi-moderate",
+        "pill_class": "pill-moderate",
+        "accuracy": "97.2%"
+    },
+    {
+        "date": "Thu, Jun 04",
+        "predicted_aqi": 75,
+        "actual_aqi": 73,
+        "label": "Moderate",
+        "css_class": "aqi-moderate",
+        "pill_class": "pill-moderate",
+        "accuracy": "97.3%"
+    },
+    {
+        "date": "Fri, Jun 05",
+        "predicted_aqi": 78,
+        "actual_aqi": 76,
+        "label": "Moderate",
+        "css_class": "aqi-moderate",
+        "pill_class": "pill-moderate",
+        "accuracy": "97.4%"
+    }
+]
