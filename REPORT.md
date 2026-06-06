@@ -1,6 +1,6 @@
 # Internship Project Report: Karachi Air Quality Index (AQI) 3-Day Forecast System
 
-**Project Type**: Internship Capstone Project  
+**Project Type**: Internship Project  
 **Target City**: Karachi, Pakistan  
 **Date**: June 2026  
 
@@ -30,17 +30,31 @@ Where:
 
 The pipeline implements a decentralized data design, dividing the system into three main services:
 
-```
-[Inference Clients] <--- [Streamlit Dashboard]
-                               | (online read)
-                               v
-[Open-Meteo API] ---> [GitHub Actions Cron] ---> [Hopsworks Feature Store]
-                                                      ^ (offline read)
-                                                      |
-                                            [Model Training Pipeline]
-                                                      | (register)
-                                                      v
-                                           [Hopsworks Model Registry]
+```mermaid
+flowchart TD
+    %% Define Node Styles for Sleek Dark Theme
+    classDef client fill:#0f172a,stroke:#38bdf8,stroke-width:2px,color:#f8fafc;
+    classDef service fill:#1e293b,stroke:#475569,stroke-width:2px,color:#f8fafc;
+    classDef pipeline fill:#1e1b4b,stroke:#818cf8,stroke-width:2px,color:#f8fafc;
+    classDef storage fill:#064e3b,stroke:#34d399,stroke-width:2px,color:#f8fafc;
+
+    %% Nodes
+    Clients["Inference Clients"]:::client
+    Dashboard["Streamlit Dashboard"]:::service
+    API["Open-Meteo API"]:::service
+    Cron["GitHub Actions Cron"]:::pipeline
+    FeatureStore[("Hopsworks Feature Store")]:::storage
+    TrainingPipeline["Model Training Pipeline"]:::pipeline
+    ModelRegistry[("Hopsworks Model Registry")]:::storage
+
+    %% Connections
+    Dashboard -->|"Serve Predictions"| Clients
+    API -->|"Fetch Weather/Pollutants"| Cron
+    Cron -->|"Ingest Features (Hourly)"| FeatureStore
+    Dashboard -->|"Online Read (Lags)"| FeatureStore
+    Dashboard -->|"Load Best Model (v12)"| ModelRegistry
+    TrainingPipeline -->|"Offline Read (History)"| FeatureStore
+    TrainingPipeline -->|"Register Trained Model"| ModelRegistry
 ```
 
 ### A. Ingestion Service
@@ -49,7 +63,7 @@ An automated cron schedule runs hourly on GitHub Actions. It fetches current wea
 ### B. Feature Store Design (Hopsworks)
 We utilize a single Feature Group (`aqi_features`, version 6) configured with:
 * **Offline Storage (Hudi)**: Keeps the full historical logs of the system for model retraining.
-* **Online Storage (MySQL NDB)**: Serves live feature rows to the Streamlit app for real-time predictions in under 1 second.
+
 
 ---
 
@@ -97,6 +111,8 @@ Initially, splitting the dataset strictly chronologically resulted in negative $
 | **Linear Regression** | 10.35 | 13.80 | 0.37 |
 
 The **Multi-Output XGBoost** regressor outperformed all other models and was registered as **Version 12** on Hopsworks.
+
+![Model Performance Comparison](artifacts/model_metrics_comparison.png)
 
 ---
 
