@@ -22,7 +22,7 @@ load_dotenv()
 # ──────────────────────────────────────────────
 st.set_page_config(
     page_title="AQI Predictor Pro",
-    page_icon="🌬️",
+    page_icon="chart_with_upwards_trend",
     layout="wide"
 )
 
@@ -33,13 +33,38 @@ st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;900&display=swap');
 
-html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
+html, body, [class*="css"] { 
+    font-family: 'Inter', sans-serif; 
+}
 
-.stApp { background: linear-gradient(135deg, #0d1117 0%, #161b27 100%); }
+.stApp { 
+    background: linear-gradient(135deg, #0d1117 0%, #161b27 100%); 
+}
 
+/* Force light text color for all typography in main container */
+h1, h2, h3, h4, h5, h6, p, span, li, label, .stMarkdown, [data-testid="stMetricLabel"] {
+    color: #f0f6fc !important;
+}
+
+/* Style metric values explicitly */
 [data-testid="stMetricValue"] {
     font-size: 2rem !important;
     font-weight: 700 !important;
+    color: #ffffff !important;
+}
+
+/* Force premium dark styling for sidebar */
+[data-testid="stSidebar"] {
+    background-color: #0d1117 !important;
+    border-right: 1px solid rgba(255, 255, 255, 0.08) !important;
+}
+[data-testid="stSidebar"] * {
+    color: #f0f6fc !important;
+}
+[data-testid="stSidebar"] button {
+    background-color: #161b27 !important;
+    color: #f0f6fc !important;
+    border: 1px solid rgba(255, 255, 255, 0.1) !important;
 }
 
 .prediction-card {
@@ -65,12 +90,12 @@ html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
 }
 .aqi-sub { color: #8b949e; font-size: 0.9rem; margin-top: 12px; }
 
-.aqi-good            { color: #00e676; }
-.aqi-moderate        { color: #ffee58; }
-.aqi-sensitive       { color: #ffa726; }
-.aqi-unhealthy       { color: #ef5350; }
-.aqi-very-unhealthy  { color: #ab47bc; }
-.aqi-hazardous       { color: #b71c1c; }
+.aqi-good            { color: #10b981; }
+.aqi-moderate        { color: #f59e0b; }
+.aqi-sensitive       { color: #f97316; }
+.aqi-unhealthy       { color: #ef4444; }
+.aqi-very-unhealthy  { color: #8b5cf6; }
+.aqi-hazardous       { color: #b91c1c; }
 
 .pill {
     display: inline-block;
@@ -80,12 +105,12 @@ html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
     font-weight: 600;
     margin-top: 10px;
 }
-.pill-good            { background: #00e67622; color: #00e676; }
-.pill-moderate        { background: #ffee5822; color: #ffee58; }
-.pill-sensitive       { background: #ffa72622; color: #ffa726; }
-.pill-unhealthy       { background: #ef535022; color: #ef5350; }
-.pill-very-unhealthy  { background: #ab47bc22; color: #ab47bc; }
-.pill-hazardous       { background: #b71c1c22; color: #ff6060; }
+.pill-good            { background: rgba(16, 185, 129, 0.12); color: #10b981; }
+.pill-moderate        { background: rgba(245, 158, 11, 0.12); color: #f59e0b; }
+.pill-sensitive       { background: rgba(249, 115, 22, 0.12); color: #f97316; }
+.pill-unhealthy       { background: rgba(239, 68, 68, 0.12); color: #ef4444; }
+.pill-very-unhealthy  { background: rgba(139, 92, 246, 0.12); color: #8b5cf6; }
+.pill-hazardous       { background: rgba(185, 28, 28, 0.12); color: #b91c1c; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -95,17 +120,17 @@ html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
 # ──────────────────────────────────────────────
 def get_aqi_info(aqi: int):
     if aqi <= 50:
-        return "Good", "aqi-good", "pill-good", "🟢", "Air quality is satisfactory."
+        return "Good", "aqi-good", "pill-good", "Air quality is satisfactory."
     elif aqi <= 100:
-        return "Moderate", "aqi-moderate", "pill-moderate", "🟡", "Acceptable for most people."
+        return "Moderate", "aqi-moderate", "pill-moderate", "Acceptable for most people."
     elif aqi <= 150:
-        return "Unhealthy for Sensitive Groups", "aqi-sensitive", "pill-sensitive", "🟠", "Sensitive groups should limit outdoor exposure."
+        return "Unhealthy for Sensitive Groups", "aqi-sensitive", "pill-sensitive", "Sensitive groups should limit outdoor exposure."
     elif aqi <= 200:
-        return "Unhealthy", "aqi-unhealthy", "pill-unhealthy", "🔴", "Everyone may experience health effects."
+        return "Unhealthy", "aqi-unhealthy", "pill-unhealthy", "Everyone may experience health effects."
     elif aqi <= 300:
-        return "Very Unhealthy", "aqi-very-unhealthy", "pill-very-unhealthy", "🟣", "Health alert – avoid prolonged outdoor activity."
+        return "Very Unhealthy", "aqi-very-unhealthy", "pill-very-unhealthy", "Health alert – avoid prolonged outdoor activity."
     else:
-        return "Hazardous", "aqi-hazardous", "pill-hazardous", "⚫", "Emergency conditions – stay indoors."
+        return "Hazardous", "aqi-hazardous", "pill-hazardous", "Emergency conditions – stay indoors."
 
 
 # ──────────────────────────────────────────────
@@ -274,25 +299,20 @@ def build_feature_row(df: pd.DataFrame, feature_names: list) -> pd.DataFrame:
 # ──────────────────────────────────────────────
 city = "karachi"  # Only city supported
 
-st.sidebar.title("⚙️ Settings")
-st.sidebar.markdown("📍 **City:** Karachi")
+st.sidebar.title("Settings")
+st.sidebar.markdown("**City:** Karachi")
 
-if st.sidebar.button("🔄 Refresh Data"):
+if st.sidebar.button("Refresh Data"):
     load_feature_data.clear()
     load_model.clear()
     st.rerun()
 
-st.sidebar.markdown("---")
-st.sidebar.markdown(
-    "**Pipeline schedule**\n"
-    "- 📥 Feature ingestion: **every hour**\n"
-    "- 🧠 Model training: **every day at midnight**"
-)
+
 
 # ──────────────────────────────────────────────
 # Main App
 # ──────────────────────────────────────────────
-st.title("🌬️ AQI Predictor Pro")
+st.title("AQI Predictor Pro")
 st.markdown("### Real-time Air Quality Intelligence · **Karachi**")
 st.markdown("---")
 
@@ -311,7 +331,7 @@ try:
     latest = df.iloc[0]
 
     # ── Current Conditions ──────────────────────────────────────────────
-    st.subheader("📍 Current Conditions")
+    st.subheader("Current Conditions")
     c1, c2, c3, c4, c5 = st.columns(5)
 
     def safe_metric(col, label, value, fmt="{:.0f}", suffix=""):
@@ -320,16 +340,16 @@ try:
         except Exception:
             col.metric(label, "N/A")
 
-    safe_metric(c1, "🌡 AQI Now",       latest.get('aqi', 0),         "{:.0f}")
-    safe_metric(c2, "💨 PM2.5",         latest.get('pm25', 0),        "{:.1f}")
-    safe_metric(c3, "🌡️ Temperature",   latest.get('temperature', 0), "{:.1f}", "°C")
-    safe_metric(c4, "💧 Humidity",      latest.get('humidity', 0),    "{:.0f}", "%")
-    safe_metric(c5, "🌬 Wind Speed",    latest.get('wind_speed', 0),  "{:.1f}", " m/s")
+    safe_metric(c1, "AQI Now",       latest.get('aqi', 0),         "{:.0f}")
+    safe_metric(c2, "PM 2.5",        latest.get('pm25', 0),        "{:.1f}")
+    safe_metric(c3, "Temperature",   latest.get('temperature', 0), "{:.1f}", "°C")
+    safe_metric(c4, "Humidity",      latest.get('humidity', 0),    "{:.0f}", "%")
+    safe_metric(c5, "Wind Speed",    latest.get('wind_speed', 0),  "{:.1f}", " m/s")
 
     st.markdown("---")
 
     # ── 3-Day Prediction ────────────────────────────────────────────────
-    st.subheader("🔮 3-Day AQI Forecast")
+    st.subheader("3-Day AQI Forecast")
 
     feature_row = build_feature_row(df, feature_names)
     raw_preds = model.predict(feature_row)[0]  # array of 3 values: [day1, day2, day3]
@@ -364,7 +384,7 @@ try:
             with col:
                 st.markdown(f"""
                 <div class="prediction-card">
-                    <p style="color:#8b949e; font-size:0.9rem; margin-bottom:4px;">{day_label.upper()}</p>
+                    <p style="color:#a0aec0; font-size:0.85rem; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom:4px;">{day_label}</p>
                     <div class="aqi-value" style="color:#8b949e;">—</div>
                     <p class="aqi-sub">Not available (retrain with multi-output model)</p>
                 </div>
@@ -372,17 +392,16 @@ try:
             continue
 
         pred_aqi = int(max(0, round(pred_val)))
-        label, css_class, pill_class, icon, advice = get_aqi_info(pred_aqi)
+        label, css_class, pill_class, advice = get_aqi_info(pred_aqi)
         target_date = (datetime.now() + timedelta(days=i + 1)).strftime("%a, %b %d")
 
         with col:
             st.markdown(f"""
             <div class="prediction-card">
-                <p style="color:#8b949e; font-size:0.9rem; margin-bottom:4px;">{day_label.upper()}</p>
-                <p style="font-size:0.95rem; font-weight:600; margin:0">{target_date}</p>
+                <p style="color:#a0aec0; font-size:0.85rem; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom:4px;">{day_label}</p>
+                <p style="font-size:0.95rem; font-weight:600; color:#e2e8f0; margin:0">{target_date}</p>
                 <div class="aqi-value {css_class}">{pred_aqi}</div>
-                <div class="aqi-label {css_class}">{icon} {label}</div>
-                <span class="pill {pill_class}">{label}</span>
+                <div style="margin: 12px 0 6px 0;"><span class="pill {pill_class}">{label}</span></div>
                 <p class="aqi-sub">{advice}</p>
             </div>
             """, unsafe_allow_html=True)
@@ -395,33 +414,8 @@ try:
 
     st.markdown("---")
 
-    # ── Historical Trend ────────────────────────────────────────────────
-    st.subheader("📈 Recent AQI Trend (Last 48 Hours)")
-
-    trend_df = df.copy()
-    trend_df['timestamp'] = pd.to_datetime(trend_df['timestamp'])
-    trend_df = trend_df.drop_duplicates(subset=['timestamp']).sort_values('timestamp').tail(48)
-    trend_df = trend_df.set_index('timestamp')[['aqi', 'pm25']].dropna()
-
-    st.line_chart(trend_df, use_container_width=True)
-
-    # ── Pollutant Breakdown ─────────────────────────────────────────────
-    st.subheader("🔬 Pollutant Snapshot")
-    pollutants = {
-        "PM2.5": latest.get('pm25', 0),
-        "PM10":  latest.get('pm10', 0),
-        "O₃":   latest.get('o3', 0),
-        "NO₂":  latest.get('no2', 0),
-        "SO₂":  latest.get('so2', 0),
-        "CO":   latest.get('co', 0),
-    }
-    poll_df = pd.DataFrame.from_dict(
-        pollutants, orient='index', columns=['Value']
-    ).sort_values('Value', ascending=False)
-    st.bar_chart(poll_df, use_container_width=True)
-
 except Exception as e:
-    st.error(f"⚠️ Could not load data: {e}")
+    st.error(f"Could not load data: {e}")
     st.info("Make sure your `.env` file has valid `HOPSWORKS_API_KEY` and the pipeline has been run at least once.")
 
 st.markdown("---")

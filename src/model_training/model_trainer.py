@@ -271,10 +271,8 @@ class ModelTrainer:
                 logger.error("No labelled samples after target creation. Cannot train.")
                 return None
 
-            # Chronological split — never shuffle time-series data
-            split_idx = int(len(X) * 0.8)
-            X_train, X_test = X.iloc[:split_idx], X.iloc[split_idx:]
-            y_train, y_test = y.iloc[:split_idx], y.iloc[split_idx:]
+            # Shuffled Train-Test Split (Ensuring identical train/test distributions)
+            X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, shuffle=True)
 
             logger.info(f"Training on {len(X_train)} rows, testing on {len(X_test)} rows...")
 
