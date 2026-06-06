@@ -475,6 +475,3 @@ try:
 except Exception as e:
     st.error(f"Could not load data from Hopsworks: {e}")
     st.info("Make sure your `.env` file has valid `HOPSWORKS_API_KEY`.")
-
-st.markdown("---")
-st.caption("Powered by XGBoost · Hopsworks Feature Store & Model Registry · AQICN API")
