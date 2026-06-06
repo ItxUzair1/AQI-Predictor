@@ -83,6 +83,16 @@ Air quality exhibits high autocorrelation (today's AQI is highly dependent on ye
 ### C. Leakage Prevention
 To ensure validity, the **current hour's raw AQI** is dropped from the input matrix $X$. The model is forced to make forecasts based solely on historical lag features and meteorology, preventing leakage.
 
+### D. Exploratory Data Analysis & Feature Correlation
+To understand the relationships between different air pollutants and meteorological parameters, we computed the correlation matrix for Karachi's clean dataset.
+
+![Correlation Heatmap](artifacts/correlation_heatmap.png)
+
+**Key EDA Insights:**
+* **AQI Drivers**: $PM_{2.5}$ has the strongest positive correlation with the base AQI (**0.76**), indicating it is the dominant factor in air quality degradation, closely followed by $PM_{10}$ (**0.68**).
+* **Meteorological Impact**: Ozone ($O_3$) exhibits a strong positive correlation with Temperature (**0.85**) and a strong negative correlation with Humidity (**-0.84**). This aligns with atmospheric chemistry, as higher solar radiation and temperatures catalyze ground-level ozone formation.
+* **Pollutant Co-occurrence**: $PM_{2.5}$ and $PM_{10}$ are highly co-linear (**0.96**), confirming that sources of combustion (industrial and vehicular) simultaneously emit both particle sizes in Karachi.
+
 ---
 
 ## 4. Model Training & Evaluation Metrics
@@ -114,6 +124,16 @@ The **Multi-Output XGBoost** regressor outperformed all other models and was reg
 
 ![Model Performance Comparison](artifacts/model_metrics_comparison.png)
 
+### C. Model Interpretability (Feature Importance)
+To understand how the best-performing XGBoost model makes its predictions, we extracted and averaged the feature importances across the three independent target estimators (Day 1, Day 2, and Day 3).
+
+![XGBoost Feature Importance](artifacts/feature_importance.png)
+
+**Key Interpretability Insights:**
+* **Seasonal & Calendar Controls**: `Month` (**0.083**), `Day of Month` (**0.081**), and `Day of Week` (**0.068**) emerge as the top split features. This demonstrates that the model heavily relies on cyclical temporal patterns, reflecting Karachi's seasonal weather shifts and weekly industrial emissions/traffic variations.
+* **Recent Meteorological Dynamics**: `Wind Speed Roll Mean (24h)` (**0.076**) carries substantial weight, verifying that atmospheric dispersion (or stagnation) is critical for local pollution forecasts.
+* **Lag Autocorrelation**: Autocorrelation lags like `AQI Lag (48h)` (**0.051**) and `AQI Lag (24h)` (**0.049**) remain highly important, proving that past air quality conditions are strong baseline indicators of future trends.
+
 ---
 
 ## 5. Deployment & User Interface
@@ -126,14 +146,3 @@ The application is deployed live on **Streamlit Community Cloud** with several k
 
 ---
 
-## 6. MLOps Project Verification Checklist
-
-Below is a checklist showing how the project meets standard grading and production ML requirements:
-
-* [x] **Data Ingestion Automation**: GitHub Actions pipeline runs every hour to fetch Open-Meteo metrics.
-* [x] **Feature Store Management**: Hopsworks Feature Group manages schema validation, partition tracking, and online/offline storage.
-* [x] **Data Cleaning**: Outliers and zero-fill timeout placeholders are dynamically filtered out.
-* [x] **Model Registry**: Models are registered with detailed metadata, descriptions, MAE/RMSE scores, and feature dependencies.
-* [x] **Dynamic Prediction**: Deployed application loads the model and runs predictions in real-time based on live inputs.
-* [x] **UI Styling**: Tailwind-inspired dark CSS styles with glassmorphic cards and clear text contrast.
-* [x] **Open Access**: Public Streamlit URL live-deployed for immediate evaluation.
