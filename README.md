@@ -1,10 +1,10 @@
 # AQI Predictor Pro: Multi-Day Air Quality Forecasting
 
-An enterprise-grade, automated Machine Learning system designed to forecast the Air Quality Index (AQI) for the next 3 days (**Day 1, Day 2, and Day 3**) in Karachi, Pakistan. The system integrates a real-time data ingestion pipeline, a feature store (Hopsworks), multi-output regression models, and a sleek, dark-mode Streamlit dashboard.
+An automated Machine Learning system designed to forecast the Air Quality Index (AQI) for the next 3 days (**Day 1, Day 2, and Day 3**) in Karachi, Pakistan. The system integrates a real-time data ingestion pipeline, a feature store (Hopsworks), multi-output regression models, and a sleek, dark-mode Streamlit dashboard.
 
 ---
 
-## 🌟 Key System Architecture
+## Key System Architecture
 
 ```mermaid
 graph TD
@@ -19,15 +19,29 @@ graph TD
 
 ---
 
-## 🛠️ Key Challenges & Design Solutions (For Evaluators)
+## Hopsworks Feature Store & Model Registry
+
+* **Feature Store (Offline & Online Storage)**: Clean historical data is stored in the Hopsworks Feature Store (version 6). The training pipeline queries historical features offline, while the Streamlit application queries the online store in real-time to compute lag values and rolling metrics during inference.
+* **Model Registry (Artifact Versioning)**: Trained models and associated feature lists are tracked, versioned, and stored in the Hopsworks Model Registry. This decouples the training and deployment phases, allowing the frontend application to fetch the best model version programmatically.
+
+---
+
+## Automation & CI/CD
+
+* **Automated Data Ingestion**: An ingestion pipeline runs on an automated cron schedule (e.g., hourly via GitHub Actions / Airflow) to fetch current weather and air quality values from API endpoints and append them to the Hopsworks Feature Group.
+* **Continuous Training**: Retraining pipelines can run automatically to evaluate new data, updates in the feature store, and update the active model version in the registry.
+
+---
+
+## Key Challenges & Design Solutions
 
 During development, two critical issues were identified and resolved to ensure high model generalization and prevent negative $R^2$ scores:
 
 ### 1. Weather Data Anomaly Cleaning (Zero-Fill Bias)
-* **Problem**: 60% of historical weather records contained `0.0` values (e.g. `temperature = 0.0`), representing API timeout placeholders. Keeping these values or mean-imputing them caused severe collinearity and model degradation. Additionally, US Consulate station sensors were frozen, injecting static stale data.
+* **Problem**: 60% of historical weather records contained `0.0` values (e.g. `temperature = 0.0`), representing API timeout placeholders. Keeping these values or mean-imputing them caused severe collinearity and model degradation.
+
 * **Solution**: Implemented strict filtration:
-  - Excluded weather rows where `temperature <= 0.0` ( Karachi temperatures never drop to 0°C).
-  - Excluded consulate data by filtering only for `city == 'Karachi, Pakistan'`.
+  - Excluded weather rows where `temperature <= 0.0` (Karachi temperatures never drop to 0°C).
   This left a clean, high-fidelity dataset for robust training.
 
 ### 2. Shuffled Train-Test Split (Distribution Alignment)
@@ -36,7 +50,7 @@ During development, two critical issues were identified and resolved to ensure h
 
 ---
 
-## 📊 Feature Engineering & Leakage Prevention
+## Feature Engineering & Leakage Prevention
 
 * **Predictors Used**: Air pollutants ($PM_{2.5}, PM_{10}, O_3, NO_2, SO_2, CO$), meteorological parameters (temperature, humidity, wind speed, pressure), and calendar features.
 * **Temporal Features**: Engineered autocorrelation lags (`aqi_lag_24h`, `aqi_lag_48h`, `aqi_lag_72h`) and rolling window statistics (mean/std dev) to provide historical context.
@@ -44,7 +58,7 @@ During development, two critical issues were identified and resolved to ensure h
 
 ---
 
-## 🧠 Model Training & Performance
+## Model Training & Performance
 
 The pipeline trains and compares multiple multi-output algorithms wrapped in `MultiOutputRegressor` to predict `[target_day1, target_day2, target_day3]` simultaneously.
 
@@ -60,7 +74,7 @@ The pipeline trains and compares multiple multi-output algorithms wrapped in `Mu
 
 ---
 
-## 🖥️ Streamlit Prediction Dashboard
+## Streamlit Prediction Dashboard
 
 The real-time prediction dashboard features a custom CSS stylesheet for a premium, high-contrast dark theme:
 * **Current Conditions**: Displays the latest real-time AQI, PM2.5, temperature, humidity, and wind speed.
@@ -69,7 +83,7 @@ The real-time prediction dashboard features a custom CSS stylesheet for a premiu
 
 ---
 
-## 📂 Project Structure
+## Project Structure
 
 ```text
 ├── .streamlit/             # Streamlit local configuration files
@@ -90,7 +104,7 @@ The real-time prediction dashboard features a custom CSS stylesheet for a premiu
 
 ---
 
-## 🚀 How to Run
+## How to Run
 
 ### 1. Prerequisites & Environment
 Ensure you have Python 3.10+ and a `.env` file in the root directory containing your Hopsworks credentials:
