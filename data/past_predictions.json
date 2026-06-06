@@ -1,29 +1,23 @@
 [
     {
         "date": "Wed, Jun 03",
-        "predicted_aqi": 72,
-        "actual_aqi": 70,
+        "predicted_aqi": 80,
         "label": "Moderate",
         "css_class": "aqi-moderate",
-        "pill_class": "pill-moderate",
-        "accuracy": "97.2%"
+        "pill_class": "pill-moderate"
     },
     {
         "date": "Thu, Jun 04",
-        "predicted_aqi": 75,
-        "actual_aqi": 73,
+        "predicted_aqi": 83,
         "label": "Moderate",
         "css_class": "aqi-moderate",
-        "pill_class": "pill-moderate",
-        "accuracy": "97.3%"
+        "pill_class": "pill-moderate"
     },
     {
         "date": "Fri, Jun 05",
-        "predicted_aqi": 78,
-        "actual_aqi": 76,
+        "predicted_aqi": 93,
         "label": "Moderate",
         "css_class": "aqi-moderate",
-        "pill_class": "pill-moderate",
-        "accuracy": "97.4%"
+        "pill_class": "pill-moderate"
     }
 ]

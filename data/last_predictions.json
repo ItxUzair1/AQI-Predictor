@@ -1,17 +1,17 @@
 {
-    "timestamp": "2026-06-06 11:30:00",
+    "timestamp": "2026-06-06 12:22:58",
     "current_conditions": {
-        "aqi": 70.0,
-        "pm25": 21.8,
-        "temperature": 32.5,
-        "humidity": 65.0,
-        "wind_speed": 16.1
+        "aqi": 89.0,
+        "pm25": 21.5,
+        "temperature": 29.2,
+        "humidity": 82.0,
+        "wind_speed": 7.4
     },
     "predictions": [
         {
             "day_label": "Tomorrow",
             "target_date": "Sun, Jun 07",
-            "pred_aqi": 70,
+            "pred_aqi": 80,
             "label": "Moderate",
             "css_class": "aqi-moderate",
             "pill_class": "pill-moderate",
@@ -20,7 +20,7 @@
         {
             "day_label": "Day 2",
             "target_date": "Mon, Jun 08",
-            "pred_aqi": 73,
+            "pred_aqi": 83,
             "label": "Moderate",
             "css_class": "aqi-moderate",
             "pill_class": "pill-moderate",
@@ -29,12 +29,12 @@
         {
             "day_label": "Day 3",
             "target_date": "Tue, Jun 09",
-            "pred_aqi": 77,
+            "pred_aqi": 93,
             "label": "Moderate",
             "css_class": "aqi-moderate",
             "pill_class": "pill-moderate",
             "advice": "Acceptable for most people."
         }
     ],
-    "model_name": "XGBoost"
+    "model_name": "Multi-Output XGBRegressor"
 }

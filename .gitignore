@@ -39,6 +39,10 @@ secret*/
 logs/
 airflow/logs/
 *.log
+logs-job-*/
+
+# Temporary build folders
+tmp/
 
 # C-extensions
 *.so
