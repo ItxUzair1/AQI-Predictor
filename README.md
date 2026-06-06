@@ -79,8 +79,6 @@ The pipeline trains and compares multiple multi-output algorithms wrapped in `Mu
 The real-time prediction dashboard features a custom CSS stylesheet for a premium, high-contrast dark theme:
 * **Current Conditions**: Displays the latest real-time AQI, PM2.5, temperature, humidity, and wind speed.
 * **3-Day Forecast Cards**: Shows upcoming daily forecasts rendered as clean, Tailwind-style badges (e.g. Good, Moderate) without duplicate label noise.
-* **No Emoji Clutter**: Clean, text-based sidebar and widget headers for a professional dashboard look.
-
 ---
 
 ## Project Structure
@@ -92,10 +90,12 @@ The real-time prediction dashboard features a custom CSS stylesheet for a premiu
 ├── notebooks/
 │   └── EDA_and_Model_Training.ipynb  # Interactive Jupyter notebook for EDA
 ├── src/
-│   ├── data_ingestion/     # Hopsworks Feature Store connection
-│   ├── model_training/     # Model training, evaluation, and registration pipeline
-│   ├── logger.py           # Application logger
-│   └── exception.py        # Custom exception handler
+│   ├── data_ingestion/       # Ingests raw data from API(Open-Meteo)
+│   ├── data_transformation/  # Cleans, imputes, and engineers lag/rolling features
+│   ├── model_training/       # Training multi-output models
+│   ├── pipeline/             # Full execution pipelines (ingestion & training pipelines)
+│   ├── logger.py             # Application logger
+│   └── exception.py          # Custom exception handler
 ├── artifacts/              # Local cache of joblib models and metadata
 ├── logs/                   # Application runtime log files
 ├── requirements.txt        # Python dependency list
