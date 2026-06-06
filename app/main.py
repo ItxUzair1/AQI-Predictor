@@ -212,9 +212,10 @@ def load_feature_data(city_name: str):
     aqi_fg = fs.get_feature_group(name="aqi_features", version=6)
     
     try:
-        df = aqi_fg.select_all().read()
-    except Exception as e:
-        # Fall back to local CSV offline cache first
+        # Try online store first (MySQL NDB) for low-latency real-time inference (milliseconds)
+        df = aqi_fg.select_all().read(online=True)
+    except Exception as online_e:
+        # Fall back to local CSV cache
         local_path = os.path.join("data", "aqi_features.csv")
         if os.path.exists(local_path):
             try:
@@ -225,10 +226,10 @@ def load_feature_data(city_name: str):
             df = pd.DataFrame()
             
         if df.empty:
-            st.warning("Hopsworks offline store unavailable. Trying online store/fallback...")
+            # Fall back to offline store (Hive/Presto) which takes 15-30 seconds
             try:
-                df = aqi_fg.select_all().read(online=True)
-            except Exception as online_e:
+                df = aqi_fg.select_all().read()
+            except Exception as offline_e:
                 st.error("Hopsworks cluster overloaded. Generating local fallback data for inference...")
                 import sys
                 sys.path.append(os.getcwd())
